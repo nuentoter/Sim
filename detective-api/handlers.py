@@ -1,13 +1,29 @@
 """
-Action handlers — each function takes (state, parsed) and returns a response dict.
+Action handlers — generic simulation engine.
+
+All NPC interactions go through handle_talk / handle_ask / handle_accuse /
+handle_build_rapport. No NPC-specific logic lives here.
 """
 
-from game_state import GameState, STATE
+from __future__ import annotations
 from typing import Optional
 
+from game_state import GameState, STATE
+from npc import resolve_npc, npc_roster, NPC
 
-def _response(message: str, state: GameState, *, hint: Optional[str] = None, event: Optional[str] = None) -> dict:
-    r = {
+
+# ---------------------------------------------------------------------------
+# Response builder
+# ---------------------------------------------------------------------------
+
+def _response(
+    message: str,
+    state: GameState,
+    *,
+    hint: Optional[str] = None,
+    event: Optional[str] = None,
+) -> dict:
+    r: dict = {
         "message": message,
         "time": state.clock.description(),
         "case_status": state.case.status,
@@ -19,38 +35,59 @@ def _response(message: str, state: GameState, *, hint: Optional[str] = None, eve
     return r
 
 
+def _npc_not_found(name_hint: Optional[str], state: GameState) -> dict:
+    roster = npc_roster(state.npcs)
+    who = f'"{name_hint}"' if name_hint else "anyone"
+    return _response(
+        f"You don't see {who} around. People you know of:\n{roster}",
+        state,
+        hint="Try: 'talk to Tom', 'talk to Petra', 'talk to Nour'",
+    )
+
+
 # ---------------------------------------------------------------------------
-# Individual handlers
+# Handlers
 # ---------------------------------------------------------------------------
 
 def handle_help(state: GameState, parsed: dict) -> dict:
+    roster = npc_roster(state.npcs)
     msg = (
         "Detective's handbook:\n"
-        "  look around / examine <place>  — inspect your surroundings\n"
+        "  look around                    — survey your surroundings\n"
         "  go to <place>                  — travel somewhere\n"
-        "  talk to Tom / ask Tom about X  — speak with NPC Tom Baker\n"
+        "  talk to <NPC name>             — approach an NPC\n"
+        "  ask <NPC name> about <topic>   — question an NPC on a subject\n"
+        "  accuse <NPC name>              — make an accusation\n"
+        "  be nice to <NPC name>          — build rapport\n"
         "  pick up <item>                 — collect a clue\n"
-        "  examine <item>                 — study a clue you've found\n"
-        "  wait / pass time               — advance the clock\n"
+        "  examine <item>                 — study a clue\n"
+        "  wait                           — advance the clock\n"
         "  status                         — review case progress\n"
         "  solve case                     — attempt to close the case\n"
-        "  reset                          — start over"
+        "  reset                          — start over\n\n"
+        f"People you know of:\n{roster}"
     )
-    return _response(msg, state, hint="Try: 'look around', 'go to The Rusty Anchor', 'talk to Tom'")
+    return _response(msg, state)
 
 
 def handle_status(state: GameState, parsed: dict) -> dict:
     summary = state.case.summary()
-    tom = state.tom.status()
     clue_list = "\n  ".join(summary["clues_found"]) if summary["clues_found"] else "none yet"
+
+    npc_lines = []
+    for npc in state.npcs.values():
+        npc_lines.append(
+            f"  {npc.name} — mood {npc.mood}/100  stress {npc.stress}/100  "
+            f"suspicion {npc.suspicion}/100  "
+            f"({sum(1 for k in npc.knowledge if k.revealed)}/{len(npc.knowledge)} clues shared)"
+        )
+
     msg = (
         f"=== {summary['title']} ===\n"
         f"Victim: {summary['victim']}  |  Status: {summary['status'].upper()}\n"
         f"Time: {state.clock.description()}\n\n"
         f"Clues collected:\n  {clue_list}\n\n"
-        f"Tom Baker — trust: {tom['trust']}/100  |  mood: {tom['mood']}\n"
-        f"  Alibi revealed: {tom['alibi_revealed']}\n"
-        f"  Key information revealed: {tom['clue_revealed']}"
+        "NPC states:\n" + "\n".join(npc_lines)
     )
     return _response(msg, state)
 
@@ -58,173 +95,221 @@ def handle_status(state: GameState, parsed: dict) -> dict:
 def handle_reset(state: GameState, parsed: dict) -> dict:
     state.reset()
     return _response(
-        "The case files shuffle back into the drawer. A new investigation begins...\n\n"
-        "Case: The Hargrove Affair\n"
-        "Victim: Eleanor Voss, found dead in the east wing of Hargrove Manor.\n"
-        "Your job: find the killer.\n\n"
-        "Type 'help' for available commands.",
+        "The case files shuffle back into the drawer. A new investigation begins.\n\n"
+        f"Case: {state.case.title}\n"
+        f"Victim: {state.case.victim}\n\n"
+        "Type 'help' to see available commands.",
         state,
-        event="game_reset"
+        event="game_reset",
     )
 
 
 def handle_wait(state: GameState, parsed: dict) -> dict:
-    old_period = state.clock.period
+    old = state.clock.period
     state.clock.advance()
-    new_period = state.clock.period
+    new = state.clock.period
+
+    # NPCs passively recover stress over time
+    for npc in state.npcs.values():
+        npc.shift_stress(-5)
+        npc.shift_mood(2)
+
     flavour = {
         "morning":   "The sun climbs higher. The streets stir to life.",
-        "afternoon": "Shadows shorten. The town bustle reaches its peak.",
-        "evening":   "Dusk settles over the manor. Lanterns flicker on.",
+        "afternoon": "Shadows shorten. The town bustles.",
+        "evening":   "Dusk settles in. Lanterns flicker on.",
         "night":     "Silence falls. Somewhere a dog barks at the dark.",
     }
     msg = (
-        f"Time passes... {old_period.capitalize()} gives way to {new_period}.\n"
-        f"{flavour[new_period]}\n"
+        f"Time passes... {old.capitalize()} gives way to {new}.\n"
+        f"{flavour[new]}\n"
         f"It is now {state.clock.description()}."
     )
     return _response(msg, state, event="time_advanced")
 
 
 def handle_time(state: GameState, parsed: dict) -> dict:
-    return _response(f"It is currently {state.clock.description()}.", state)
+    return _response(f"It is {state.clock.description()}.", state)
 
 
 def handle_go(state: GameState, parsed: dict) -> dict:
     dest = (parsed.get("topic") or "").strip()
     if not dest:
-        return _response("Go where? Specify a destination.", state, hint="Try: 'go to The Rusty Anchor'")
+        return _response(
+            "Go where? Name a destination.",
+            state,
+            hint="Try: 'go to The Rusty Anchor', 'go to the marina', 'go to the manor'",
+        )
 
     descriptions = {
-        "pub": (
-            "The Rusty Anchor — low beams, sawdust floor, the smell of stale beer. "
-            "Tom Baker hunches over a corner table, nursing a pint."
-        ),
-        "rusty anchor": (
-            "The Rusty Anchor — low beams, sawdust floor, the smell of stale beer. "
-            "Tom Baker hunches over a corner table, nursing a pint."
-        ),
-        "manor": (
-            "Hargrove Manor rises against the grey sky. "
-            "The east wing is cordoned off with police tape. "
-            "You notice muddy footprints near the garden gate."
-        ),
-        "hargrove manor": (
-            "Hargrove Manor rises against the grey sky. "
-            "The east wing is cordoned off with police tape. "
-            "You notice muddy footprints near the garden gate."
-        ),
-        "east wing": (
-            "The east wing reeks of must and recent intrusion. "
-            "A wall safe hangs open — the ledger inside has been disturbed. "
-            "On the floor: a torn note and a gold pocket watch."
-        ),
-        "garden": (
-            "The manor garden is quiet. "
-            "Muddy footprints cut across the lawn toward the gate."
-        ),
-        "market": "The market square is busy. Townsfolk gossip but have little of use to offer.",
-        "police station": (
-            "The inspector taps his desk. "
-            "'Bring me hard evidence and I'll make an arrest. "
-            "Suspicion alone won't do.'"
-        ),
+        "pub":            "The Rusty Anchor — low beams, sawdust floor, stale beer. Tom Baker hunches over a corner table.",
+        "rusty anchor":   "The Rusty Anchor — low beams, sawdust floor, stale beer. Tom Baker hunches over a corner table.",
+        "manor":          "Hargrove Manor looms against the grey sky. Police tape cordons the east wing. Muddy footprints cross the lawn.",
+        "hargrove manor": "Hargrove Manor looms against the grey sky. Police tape cordons the east wing. Muddy footprints cross the lawn.",
+        "east wing":      "The east wing reeks of must. A wall safe hangs open — the ledger inside is disturbed. On the floor: a torn note and a gold pocket watch.",
+        "garden":         "The manor garden is quiet. Muddy footprints cut across the lawn toward the gate.",
+        "marina":         "The Island Marina. Petra Vance is at the dock office, clipboard in hand.",
+        "harbour":        "The Island Marina. Petra Vance is at the dock office, clipboard in hand.",
+        "harbor":         "The Island Marina. Petra Vance is at the dock office, clipboard in hand.",
+        "cafe":           "The Harbour Cafe. Nour Saleh is behind the counter, wiping down the espresso machine.",
+        "harbour cafe":   "The Harbour Cafe. Nour Saleh is behind the counter, wiping down the espresso machine.",
+        "police station": "The inspector drums his fingers. 'Bring hard evidence and I'll make an arrest. Suspicion alone won't do.'",
+        "market":         "The market square. Townsfolk speak in hushed voices. The murder is on everyone's lips.",
     }
 
+    dest_lower = dest.lower()
     for key, desc in descriptions.items():
-        if key in dest.lower():
+        if key in dest_lower:
             return _response(f"You head to {dest.title()}.\n\n{desc}", state, event="location_change")
 
     return _response(
-        f"You make your way toward {dest}, but find nothing of obvious interest.",
+        f"You make your way toward {dest} but find little of obvious interest.",
         state,
-        hint="Try: manor, east wing, The Rusty Anchor, police station"
+        hint="Known places: pub, manor, east wing, marina, cafe, police station",
     )
 
 
 def handle_look(state: GameState, parsed: dict) -> dict:
-    target = (parsed.get("topic") or "").strip().lower()
+    topic = (parsed.get("topic") or "").strip().lower()
 
-    if not target or target in ("around", "here", ""):
+    if not topic:
+        roster = npc_roster(state.npcs)
         return _response(
             "You survey your surroundings. The investigation spans:\n"
-            "  • The Rusty Anchor pub — Tom Baker drinks here\n"
-            "  • Hargrove Manor (east wing) — scene of the crime\n"
-            "  • The manor garden — suspicious footprints\n"
-            "  • The police station — the inspector awaits evidence\n\n"
+            "  • The Rusty Anchor pub\n"
+            "  • Hargrove Manor (east wing — scene of the crime)\n"
+            "  • The Island Marina\n"
+            "  • The Harbour Cafe\n"
+            "  • The police station\n\n"
+            f"People you can speak to:\n{roster}\n\n"
             f"Time: {state.clock.description()}",
             state,
-            hint="Try: 'go to east wing', 'talk to Tom'"
+            hint="Try: 'go to east wing', 'talk to Tom', 'ask Petra about the boat'",
         )
 
-    if "footprint" in target or "mud" in target or "track" in target:
-        result = state.case.add_clue("footprints")
-        if result:
-            return _response(
-                f"You crouch down and study the tracks carefully.\nClue found: {result}",
-                state, event="clue_found"
-            )
-        return _response("The muddy footprints lead toward the garden gate.", state)
+    if any(k in topic for k in ("footprint", "mud", "track")):
+        desc = state.case.add_clue("footprints")
+        if desc:
+            return _response(f"You crouch and study the tracks.\nClue found: {desc}", state, event="clue_found")
+        return _response("The muddy footprints lead toward the garden gate — you've already noted them.", state)
 
-    if "safe" in target or "east wing" in target:
+    if any(k in topic for k in ("safe", "east wing")):
         return _response(
-            "The wall safe is open. Inside you can see a disturbed ledger. "
-            "On the floor: a torn note and a pocket watch.\n"
+            "The wall safe is open. Inside: a disturbed ledger. On the floor: a torn note and a gold pocket watch.\n"
             "Try: 'pick up ledger', 'pick up note', 'pick up pocket watch'",
-            state
-        )
-
-    return _response(f"You examine {target} carefully but find nothing new.", state)
-
-
-def handle_talk_tom(state: GameState, parsed: dict) -> dict:
-    topic = (parsed.get("topic") or "").strip().lower()
-    state.clock.advance()   # conversation takes time
-
-    greeting = state.tom.greet()
-
-    if not topic or topic in ("", "tom", "baker", "tom baker"):
-        state.tom.build_trust(5)
-        return _response(
-            greeting + "\n\nYou can ask Tom about: alibi, Eleanor (victim), Hargrove, Maggie.",
             state,
-            hint="Try: 'ask Tom about alibi' or 'ask Tom about Eleanor'",
-            event="time_advanced"
         )
 
-    return handle_ask_tom(state, {**parsed, "topic": topic})
+    return _response(f"You examine {topic} carefully but notice nothing new.", state)
 
 
-def handle_ask_tom(state: GameState, parsed: dict) -> dict:
-    topic = (parsed.get("topic") or "").strip().lower()
-    state.clock.advance()   # each conversation advances time
+# ---------------------------------------------------------------------------
+# Generic NPC interaction
+# ---------------------------------------------------------------------------
 
-    # Build trust a little for every civil interaction
-    state.tom.build_trust(8)
+def handle_talk(state: GameState, parsed: dict) -> dict:
+    npc_hint = parsed.get("npc_hint") or ""
+    npc = resolve_npc(npc_hint, state.npcs)
+    if not npc:
+        return _npc_not_found(npc_hint or None, state)
 
-    response_text = state.tom.respond(topic)
+    state.clock.advance()
+    greeting = npc.greet(state.clock.description())
 
-    # If Tom revealed his alibi, register it as a clue
-    if state.tom.alibi_revealed and "witness_msg" not in state.case.clues_found:
-        state.case.add_clue("witness_msg")
+    topics = _available_topics(npc)
+    hint_text = f"You can ask {npc.name} about: {topics}" if topics else None
+
+    return _response(greeting, state, hint=hint_text, event="time_advanced")
+
+
+def handle_ask(state: GameState, parsed: dict) -> dict:
+    npc_hint = parsed.get("npc_hint") or ""
+    topic = (parsed.get("topic") or "").strip()
+
+    npc = resolve_npc(npc_hint, state.npcs)
+    if not npc:
+        return _npc_not_found(npc_hint or None, state)
+
+    if not topic:
         return _response(
-            f"Tom Baker: {response_text}\n\n"
-            "[Clue recorded: Tom Baker's alibi account]",
+            f"Ask {npc.name} about what?",
             state,
-            event="clue_found"
+            hint=f"Try: 'ask {npc.name} about [topic]'",
         )
 
-    return _response(f"Tom Baker: {response_text}", state, event="time_advanced")
+    state.clock.advance()
+    response_text, clue_id = npc.respond_to_topic(topic, state.clock.description())
 
+    event = "time_advanced"
+    clue_note = ""
+    if clue_id:
+        desc = state.case.add_clue(clue_id)
+        if desc:
+            clue_note = f"\n\n[Clue recorded: {desc}]"
+            event = "clue_found"
+
+    return _response(
+        f"{npc.name}: {response_text}{clue_note}",
+        state,
+        event=event,
+    )
+
+
+def handle_accuse(state: GameState, parsed: dict) -> dict:
+    npc_hint = parsed.get("npc_hint") or ""
+    npc = resolve_npc(npc_hint, state.npcs)
+    if not npc:
+        return _npc_not_found(npc_hint or None, state)
+
+    state.clock.advance()
+    response_text = npc.receive_accusation(state.clock.description())
+    return _response(response_text, state, event="accusation_made")
+
+
+def handle_build_rapport(state: GameState, parsed: dict) -> dict:
+    npc_hint = parsed.get("npc_hint") or ""
+
+    if npc_hint:
+        npc = resolve_npc(npc_hint, state.npcs)
+        if not npc:
+            return _npc_not_found(npc_hint, state)
+        response_text = npc.receive_compliment(state.clock.description())
+        return _response(response_text, state, event="rapport_built")
+
+    # No target — list everyone
+    roster = npc_roster(state.npcs)
+    return _response(
+        f"Who do you want to be kind to?\n{roster}",
+        state,
+        hint="Try: 'be nice to Tom', 'buy Petra a drink'",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Case handlers
+# ---------------------------------------------------------------------------
+
+def handle_solve(state: GameState, parsed: dict) -> dict:
+    success, msg = state.case.try_solve()
+    event = "case_solved" if success else "solve_attempt"
+    return _response(msg, state, event=event)
+
+
+def handle_case(state: GameState, parsed: dict) -> dict:
+    return handle_status(state, parsed)
+
+
+# ---------------------------------------------------------------------------
+# Clue handlers
+# ---------------------------------------------------------------------------
 
 def handle_collect_clue(state: GameState, parsed: dict) -> dict:
     clue_id = parsed.get("topic")
     if not clue_id:
         return _response("Pick up what, exactly?", state)
-
-    result = state.case.add_clue(clue_id)
-    if result:
-        return _response(f"You pick it up carefully.\nClue added: {result}", state, event="clue_found")
+    desc = state.case.add_clue(clue_id)
+    if desc:
+        return _response(f"You pick it up carefully.\nClue added: {desc}", state, event="clue_found")
     if clue_id in state.case.clues_found:
         return _response("You already have that.", state)
     return _response("You don't see that here.", state)
@@ -232,48 +317,39 @@ def handle_collect_clue(state: GameState, parsed: dict) -> dict:
 
 def handle_examine_clue(state: GameState, parsed: dict) -> dict:
     clue_id = parsed.get("topic")
-
-    # Examining also collects the clue if it's at the scene
-    result = state.case.add_clue(clue_id) if clue_id else None
-    if result:
-        return _response(f"You study it closely.\n{result}", state, event="clue_found")
-
-    if clue_id in (state.case.clues_found or []):
-        desc = state.case.ALL_CLUES.get(clue_id, "An interesting piece of evidence.")
-        return _response(f"You re-examine it: {desc}", state)
-
-    return _response("You don't have that clue yet, or it isn't here.", state)
-
-
-def handle_solve(state: GameState, parsed: dict) -> dict:
-    if state.case.status == "solved":
-        return _response("The case is already closed. Well done, detective.", state)
-    result = state.case.try_solve()
-    return _response(result, state, event="solve_attempt")
-
-
-def handle_case(state: GameState, parsed: dict) -> dict:
-    return handle_status(state, parsed)
-
-
-def handle_build_trust(state: GameState, parsed: dict) -> dict:
-    state.tom.build_trust(15)
-    state.tom.mood = "warmer"
-    return _response(
-        "You buy Tom a round. He accepts it with a gruff nod. "
-        "He seems a little more willing to talk.",
-        state,
-        event="trust_built"
-    )
+    if not clue_id:
+        return _response("Examine what?", state)
+    desc = state.case.add_clue(clue_id)
+    if desc:
+        return _response(f"You study it closely.\nClue found: {desc}", state, event="clue_found")
+    known = state.case.ALL_CLUES.get(clue_id)
+    if known and clue_id in state.case.clues_found:
+        return _response(f"You re-examine it: {known}", state)
+    return _response("You don't have that clue, or it isn't here right now.", state)
 
 
 def handle_unknown(state: GameState, parsed: dict) -> dict:
     raw = parsed.get("raw", "")
     return _response(
-        f"You're not sure how to '{raw}'. Type 'help' for available commands.",
+        f"Not sure how to '{raw}'. Type 'help' for available commands.",
         state,
-        hint="help"
+        hint="help",
     )
+
+
+# ---------------------------------------------------------------------------
+# Helper: list available topics for an NPC (unrevealed items within reach)
+# ---------------------------------------------------------------------------
+
+def _available_topics(npc: NPC) -> str:
+    """Return a comma-separated hint of topics the NPC might discuss."""
+    reachable = []
+    for item in npc.knowledge:
+        if not item.revealed:
+            reachable.append(item.topic_keys[0])
+    if not reachable:
+        return "nothing new"
+    return ", ".join(reachable[:4])
 
 
 # ---------------------------------------------------------------------------
@@ -281,21 +357,22 @@ def handle_unknown(state: GameState, parsed: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 HANDLERS = {
-    "help":         handle_help,
-    "status":       handle_status,
-    "reset":        handle_reset,
-    "wait":         handle_wait,
-    "time":         handle_time,
-    "go":           handle_go,
-    "look":         handle_look,
-    "talk_tom":     handle_talk_tom,
-    "ask_tom":      handle_ask_tom,
-    "collect_clue": handle_collect_clue,
-    "examine_clue": handle_examine_clue,
-    "solve":        handle_solve,
-    "case":         handle_case,
-    "build_trust":  handle_build_trust,
-    "unknown":      handle_unknown,
+    "help":          handle_help,
+    "status":        handle_status,
+    "reset":         handle_reset,
+    "wait":          handle_wait,
+    "time":          handle_time,
+    "go":            handle_go,
+    "look":          handle_look,
+    "talk":          handle_talk,
+    "ask":           handle_ask,
+    "accuse":        handle_accuse,
+    "build_rapport": handle_build_rapport,
+    "collect_clue":  handle_collect_clue,
+    "examine_clue":  handle_examine_clue,
+    "solve":         handle_solve,
+    "case":          handle_case,
+    "unknown":       handle_unknown,
 }
 
 
