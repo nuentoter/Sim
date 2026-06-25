@@ -14,6 +14,7 @@ they will share it.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
+from truth import BeliefSystem
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +203,7 @@ class NPC:
     memory: list = field(default_factory=list)        # list[MemoryEvent]
     knowledge: list = field(default_factory=list)     # list[KnowledgeItem]
     heard_rumors: list = field(default_factory=list)  # list[Rumor] received via social sim
+    belief_system: BeliefSystem = field(default_factory=BeliefSystem)
 
     # --- Memory helpers ---
 

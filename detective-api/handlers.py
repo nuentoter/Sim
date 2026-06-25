@@ -74,34 +74,48 @@ def handle_status(state: GameState, parsed: dict) -> dict:
     summary = state.case.summary()
     clue_list = "\n  ".join(summary["clues_found"]) if summary["clues_found"] else "none yet"
 
-    npc_lines = []
-    for npc in state.npcs.values():
-        rumor_note = f"  rumors heard: {len(npc.heard_rumors)}" if npc.heard_rumors else ""
-        npc_lines.append(
-            f"  {npc.name} — mood {npc.mood}/100  stress {npc.stress}/100  "
-            f"suspicion {npc.suspicion}/100  "
-            f"({sum(1 for k in npc.knowledge if k.revealed)}/{len(npc.knowledge)} clues shared)"
-            + rumor_note
-        )
+    # --- Tier 1: confirmed truths ---
+    truth_lines = [f"  [{t.source_type.upper()}] {t.description}" for t in state.truth_events]
+    truth_section = "\n".join(truth_lines)
 
-    # Summarise active rumors circulating in the network
+    # --- Tier 2: active rumors ---
+    active = state.active_rumors()
+    noise_count = len(state.noise_rumors())
     rumor_lines = []
-    for r in state.rumors:
+    for r in sorted(active, key=lambda x: x.credibility, reverse=True):
         known_n = len([x for x in r.known_by if x != "player"])
-        distort_tag = f"  [distorted ~{r.distortion_level}%]" if r.distortion_level > 25 else ""
+        distort_tag = f" [~{r.distortion_level}% distorted]" if r.distortion_level > 25 else ""
         rumor_lines.append(
-            f"  • \"{r.content[:70]}{'...' if len(r.content) > 70 else ''}\" "
-            f"(cred:{r.credibility}  known by {known_n} NPCs{distort_tag})"
+            f"  • (cred:{r.credibility:3d}) \"{r.content[:65]}{'...' if len(r.content) > 65 else ''}\" "
+            f"— {known_n} NPCs know{distort_tag}"
         )
-    rumor_section = "\n".join(rumor_lines) if rumor_lines else "  none circulating yet"
+    rumor_section = "\n".join(rumor_lines) if rumor_lines else "  none circulating"
+    noise_note = f"  ({noise_count} low-credibility rumor{'s' if noise_count != 1 else ''} suppressed as noise)\n" if noise_count else ""
+
+    # --- Tier 3: NPC beliefs ---
+    npc_sections = []
+    for npc in state.npcs.values():
+        bsummary = npc.belief_system.summary()
+        dominant = bsummary["dominant_beliefs"]
+        belief_lines = "\n    ".join(
+            f"[{b['confidence']:3d}%] {b['statement'][:70]}{'...' if len(b['statement']) > 70 else ''}"
+            for b in dominant
+        ) if dominant else "no strong beliefs yet"
+        npc_sections.append(
+            f"  {npc.name} (mood:{npc.mood} stress:{npc.stress} suspicion:{npc.suspicion})\n"
+            f"    Beliefs ({bsummary['strong_count']} strong / {bsummary['moderate_count']} moderate / "
+            f"{bsummary['weak_count']} weak):\n"
+            f"    {belief_lines}"
+        )
 
     msg = (
         f"=== {summary['title']} ===\n"
         f"Victim: {summary['victim']}  |  Status: {summary['status'].upper()}\n"
         f"Time: {state.clock.description()}\n\n"
-        f"Clues collected:\n  {clue_list}\n\n"
-        "NPC states:\n" + "\n".join(npc_lines) + "\n\n"
-        "Rumors in circulation:\n" + rumor_section
+        f"[TIER 1] Confirmed Truths ({len(state.truth_events)}):\n{truth_section}\n\n"
+        f"[TIER 2] Active Rumors ({len(active)}):\n{noise_note}{rumor_section}\n\n"
+        f"[TIER 3] NPC Beliefs:\n" + "\n\n".join(npc_sections) + "\n\n"
+        f"Clues collected:\n  {clue_list}"
     )
     return _response(msg, state)
 
@@ -423,13 +437,14 @@ def dispatch(raw_input: str) -> dict:
     handler = HANDLERS.get(parsed["action"], handle_unknown)
     result = handler(STATE, parsed)
 
-    # Run background social tick — NPCs gossip and propagate rumors
-    tick_logs = social_sim.tick(
+    # Run background social tick — NPCs gossip, rumors decay, beliefs update
+    updated_rumors, tick_logs = social_sim.tick(
         npcs=STATE.npcs,
         all_rumors=STATE.rumors,
         game_time=STATE.clock.description(),
         day=STATE.clock.day,
     )
+    STATE.rumors = updated_rumors
     if tick_logs:
         STATE.social_log.extend(tick_logs)
         STATE.social_log = STATE.social_log[-50:]   # bounded ring buffer

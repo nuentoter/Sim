@@ -18,6 +18,17 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Rumors at or below this credibility are "noise" — they stop propagating
+# and are excluded from the active rumor surface shown to the player.
+NOISE_THRESHOLD: int = 20
+
+# Credibility is reinforced by this amount when the same rumor is shared
+# between two NPCs in the same tick (corroboration effect).
+REINFORCE_AMOUNT: int = 3
+
+# Base credibility decay per tick (applied to all rumors every tick).
+BASE_DECAY: int = 2
+
 
 # ---------------------------------------------------------------------------
 # Mutation vocabulary
