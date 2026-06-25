@@ -199,8 +199,9 @@ class NPC:
     mood: int = 50
     stress: int = 30
     suspicion: int = 0
-    memory: list = field(default_factory=list)       # list[MemoryEvent]
-    knowledge: list = field(default_factory=list)    # list[KnowledgeItem]
+    memory: list = field(default_factory=list)        # list[MemoryEvent]
+    knowledge: list = field(default_factory=list)     # list[KnowledgeItem]
+    heard_rumors: list = field(default_factory=list)  # list[Rumor] received via social sim
 
     # --- Memory helpers ---
 
@@ -302,6 +303,12 @@ class NPC:
             "recent_memory": [e.to_dict() for e in self.recent_memory(3)],
             "knowledge_revealed": sum(1 for k in self.knowledge if k.revealed),
             "knowledge_total": len(self.knowledge),
+            "heard_rumors_count": len(self.heard_rumors),
+            "heard_rumors": [
+                {"content": r.content, "credibility": r.credibility,
+                 "distortion_level": r.distortion_level, "source": r.source_npc_id}
+                for r in self.heard_rumors[-3:]
+            ],
         }
 
 

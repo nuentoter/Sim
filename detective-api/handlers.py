@@ -76,18 +76,32 @@ def handle_status(state: GameState, parsed: dict) -> dict:
 
     npc_lines = []
     for npc in state.npcs.values():
+        rumor_note = f"  rumors heard: {len(npc.heard_rumors)}" if npc.heard_rumors else ""
         npc_lines.append(
             f"  {npc.name} — mood {npc.mood}/100  stress {npc.stress}/100  "
             f"suspicion {npc.suspicion}/100  "
             f"({sum(1 for k in npc.knowledge if k.revealed)}/{len(npc.knowledge)} clues shared)"
+            + rumor_note
         )
+
+    # Summarise active rumors circulating in the network
+    rumor_lines = []
+    for r in state.rumors:
+        known_n = len([x for x in r.known_by if x != "player"])
+        distort_tag = f"  [distorted ~{r.distortion_level}%]" if r.distortion_level > 25 else ""
+        rumor_lines.append(
+            f"  • \"{r.content[:70]}{'...' if len(r.content) > 70 else ''}\" "
+            f"(cred:{r.credibility}  known by {known_n} NPCs{distort_tag})"
+        )
+    rumor_section = "\n".join(rumor_lines) if rumor_lines else "  none circulating yet"
 
     msg = (
         f"=== {summary['title']} ===\n"
         f"Victim: {summary['victim']}  |  Status: {summary['status'].upper()}\n"
         f"Time: {state.clock.description()}\n\n"
         f"Clues collected:\n  {clue_list}\n\n"
-        "NPC states:\n" + "\n".join(npc_lines)
+        "NPC states:\n" + "\n".join(npc_lines) + "\n\n"
+        "Rumors in circulation:\n" + rumor_section
     )
     return _response(msg, state)
 
@@ -223,6 +237,7 @@ def handle_talk(state: GameState, parsed: dict) -> dict:
 
 
 def handle_ask(state: GameState, parsed: dict) -> dict:
+    import social_sim
     npc_hint = parsed.get("npc_hint") or ""
     topic = (parsed.get("topic") or "").strip()
 
@@ -248,6 +263,17 @@ def handle_ask(state: GameState, parsed: dict) -> dict:
             clue_note = f"\n\n[Clue recorded: {desc}]"
             event = "clue_found"
 
+    # Repeated questioning generates gossip that propagates through the network
+    social_sim.inject_player_rumor(
+        action="ask",
+        npc_hint=npc_hint,
+        topic=topic,
+        acting_npc=npc,
+        all_rumors=state.rumors,
+        npc_registry=state.npcs,
+        game_time=state.clock.description(),
+    )
+
     return _response(
         f"{npc.name}: {response_text}{clue_note}",
         state,
@@ -256,6 +282,7 @@ def handle_ask(state: GameState, parsed: dict) -> dict:
 
 
 def handle_accuse(state: GameState, parsed: dict) -> dict:
+    import social_sim
     npc_hint = parsed.get("npc_hint") or ""
     npc = resolve_npc(npc_hint, state.npcs)
     if not npc:
@@ -263,6 +290,18 @@ def handle_accuse(state: GameState, parsed: dict) -> dict:
 
     state.clock.advance()
     response_text = npc.receive_accusation(state.clock.description())
+
+    # Accusation always creates an island-wide rumor immediately
+    social_sim.inject_player_rumor(
+        action="accuse",
+        npc_hint=npc_hint,
+        topic=None,
+        acting_npc=npc,
+        all_rumors=state.rumors,
+        npc_registry=state.npcs,
+        game_time=state.clock.description(),
+    )
+
     return _response(response_text, state, event="accusation_made")
 
 
@@ -377,8 +416,22 @@ HANDLERS = {
 
 
 def dispatch(raw_input: str) -> dict:
+    import social_sim
     from command_parser import parse
     parsed = parse(raw_input)
     STATE.command_count += 1
     handler = HANDLERS.get(parsed["action"], handle_unknown)
-    return handler(STATE, parsed)
+    result = handler(STATE, parsed)
+
+    # Run background social tick — NPCs gossip and propagate rumors
+    tick_logs = social_sim.tick(
+        npcs=STATE.npcs,
+        all_rumors=STATE.rumors,
+        game_time=STATE.clock.description(),
+        day=STATE.clock.day,
+    )
+    if tick_logs:
+        STATE.social_log.extend(tick_logs)
+        STATE.social_log = STATE.social_log[-50:]   # bounded ring buffer
+
+    return result
