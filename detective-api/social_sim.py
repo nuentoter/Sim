@@ -75,14 +75,15 @@ def _npc_conversation(
     all_rumors: list,
     npc_registry: dict,
     game_time: str,
-    shared_this_tick: set,   # mutable set of rumor ids shared this tick (for reinforcement)
+    shared_this_tick: set,       # mutable: rumor ids shared this tick (for reinforcement)
+    salience_map: Optional[dict] = None,  # {rumor_id: score 0-100}
 ) -> Optional[str]:
     """
     Attempt one rumor share from speaker → listener.
     Only active (above noise threshold) rumors are eligible.
+    High-salience rumors are preferred via weighted selection.
     Returns a log string or None.
     """
-    # Only share rumors that are active AND unknown to the listener
     eligible = [
         r for r in all_rumors
         if r.credibility > NOISE_THRESHOLD
@@ -94,8 +95,16 @@ def _npc_conversation(
         _share_memory_event(speaker, listener, game_time)
         return None
 
-    # Speakers prefer high-credibility rumors (weighted selection)
-    weights = [r.credibility for r in eligible]
+    # Salience-weighted selection:
+    #   weight = credibility × (0.5 + salience/100)
+    #   score 0  → 0.5×  (slower spread)
+    #   score 50 → 1.0×  (neutral)
+    #   score 100 → 1.5× (faster spread)
+    if salience_map:
+        weights = [r.credibility * (0.5 + salience_map.get(r.id, 50) / 100) for r in eligible]
+    else:
+        weights = [r.credibility for r in eligible]
+
     rumor_to_share = random.choices(eligible, weights=weights, k=1)[0]
 
     # Mutate through speaker's lens
@@ -266,6 +275,7 @@ def tick(
     game_time: str,
     day: int,
     n_conversations: Optional[int] = None,
+    salience_map: Optional[dict] = None,
 ) -> tuple:
     """
     Run the social simulation for one command tick.
@@ -293,7 +303,7 @@ def tick(
         if random.random() > gossip_chance:
             continue
 
-        log = _npc_conversation(speaker, listener, all_rumors, npcs, game_time, shared_this_tick)
+        log = _npc_conversation(speaker, listener, all_rumors, npcs, game_time, shared_this_tick, salience_map)
         if log:
             logs.append(log)
 

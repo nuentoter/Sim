@@ -118,6 +118,9 @@ def parse(raw_input: str) -> dict:
         return _r("reset", raw=raw_input)
 
     # --- investigation reasoning ---
+    if re.search(r"\b(overview|big picture|what matters|what do i know|summarize|summary)\b", norm):
+        return _r("overview", raw=raw_input)
+
     m = _LINK_RE.search(norm)
     if m:
         return _r("link", topic=f"{m.group(1).strip()}|||{m.group(2).strip()}", raw=raw_input)
@@ -134,6 +137,13 @@ def parse(raw_input: str) -> dict:
     m = _ANALYZE_RE.search(norm)
     if m:
         return _r("analyze", topic=m.group(1).strip(), raw=raw_input)
+
+    # Focus: "focus <subject>" / "focus on <subject>" / "unfocus" / "clear focus"
+    if re.search(r"\b(unfocus|clear focus|remove focus|no focus)\b", norm):
+        return _r("focus", topic=None, raw=raw_input)
+    m = re.search(r"\b(?:focus on|focus)\s+(.+)", norm)
+    if m:
+        return _r("focus", topic=m.group(1).strip(), raw=raw_input)
 
     # --- time ---
     if re.search(r"\b(wait|pass time|sleep|rest|advance time)\b", norm):

@@ -100,6 +100,8 @@ def handle_help(state: GameState, parsed: dict) -> dict:
         "  solve case                     — attempt to close the case\n"
         "  reset                          — start over\n\n"
         "Investigation reasoning:\n"
+        "  overview                       — high-level digest of top evidence\n"
+        "  focus <subject>                — lock investigation emphasis on subject\n"
         "  analyze <subject>              — all evidence about a subject\n"
         "  contradictions [subject]       — list detected conflicts\n"
         "  profile <NPC name>             — full epistemic breakdown of an NPC\n"
@@ -282,6 +284,7 @@ def handle_talk(state: GameState, parsed: dict) -> dict:
 
     state.clock.advance()
     greeting = npc.greet(state.clock.description())
+    state.board.record_interaction(npc.id, state.command_count)
 
     topics = _available_topics(npc)
     hint_text = f"You can ask {npc.name} about: {topics}" if topics else None
@@ -307,6 +310,13 @@ def handle_ask(state: GameState, parsed: dict) -> dict:
 
     state.clock.advance()
     response_text, clue_id = npc.respond_to_topic(topic, state.clock.description())
+
+    # Record interaction for salience recency — both NPC and any topic-matching rumors
+    state.board.record_interaction(npc.id, state.command_count)
+    topic_lower = topic.lower()
+    for r in state.rumors:
+        if topic_lower in r.content.lower() or any(topic_lower in s for s in r.subjects):
+            state.board.record_interaction(r.id, state.command_count)
 
     event = "time_advanced"
     clue_note = ""
@@ -644,11 +654,13 @@ HANDLERS = {
     "examine_clue":  handle_examine_clue,
     "solve":         handle_solve,
     "case":          handle_case,
-    "analyze":       handle_analyze,
+    "analyze":        handle_analyze,
     "contradictions": handle_contradictions,
-    "profile":       handle_profile,
-    "link":          handle_link,
-    "unknown":       handle_unknown,
+    "profile":        handle_profile,
+    "link":           handle_link,
+    "focus":          handle_focus,
+    "overview":       handle_overview,
+    "unknown":        handle_unknown,
 }
 
 
@@ -660,12 +672,18 @@ def dispatch(raw_input: str) -> dict:
     handler = HANDLERS.get(parsed["action"], handle_unknown)
     result = handler(STATE, parsed)
 
+    # Compute salience before tick so social_sim can weight propagation
+    salience_map = STATE.board.compute_salience(
+        STATE.truth_events, STATE.rumors, STATE.npcs, STATE.command_count
+    )
+
     # Run background social tick — NPCs gossip, rumors decay, beliefs update
     updated_rumors, tick_logs = social_sim.tick(
         npcs=STATE.npcs,
         all_rumors=STATE.rumors,
         game_time=STATE.clock.description(),
         day=STATE.clock.day,
+        salience_map=salience_map,
     )
     STATE.rumors = updated_rumors
     if tick_logs:

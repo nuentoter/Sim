@@ -94,8 +94,10 @@ class GameState:
                 for npc_id, npc in self.npcs.items()
             },
 
-            # Tier 4 — investigation board (reasoning layer)
-            "investigation_board": self.board.board_summary(self.npcs, self.truth_events),
+            # Tier 4 — investigation board (reasoning layer, salience-filtered top-5)
+            "investigation_board": self.board.board_summary(
+                self.npcs, self.truth_events, self.rumors, self.command_count
+            ),
 
             # Raw NPC state (axes + memory)
             "npcs": {npc_id: npc.status() for npc_id, npc in self.npcs.items()},
