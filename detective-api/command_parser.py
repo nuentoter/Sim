@@ -80,6 +80,32 @@ def _match_clue(text: str) -> str | None:
     return None
 
 
+
+# ---------------------------------------------------------------------------
+# Investigation command patterns
+# ---------------------------------------------------------------------------
+
+# "analyze <subject>" / "investigate <subject>" / "focus on <subject>"
+_ANALYZE_RE = re.compile(
+    r"\b(?:analyze|analyse|investigate|focus on|what do we know about)\s+(.+)", re.I
+)
+
+# "link <source_id> to <target_id>"
+_LINK_RE = re.compile(
+    r"\blink\s+(\S+)\s+to\s+(\S+)", re.I
+)
+
+# "contradictions [subject]" / "conflicts [subject]" / "inconsistencies [subject]"
+_CONTRA_RE = re.compile(
+    r"\b(?:contradictions?|conflicts?|inconsistenc(?:y|ies))\b(?:\s+(.+))?", re.I
+)
+
+# "profile <npc>" / "assess <npc>" / "evaluate <npc>"
+_PROFILE_RE = re.compile(
+    r"\b(?:profile|assess|evaluate|breakdown of|report on)\s+(.+)", re.I
+)
+
+
 def parse(raw_input: str) -> dict:
     norm = _normalize(raw_input)
 
@@ -90,6 +116,24 @@ def parse(raw_input: str) -> dict:
         return _r("status", raw=raw_input)
     if re.search(r"\b(reset|restart|new game)\b", norm):
         return _r("reset", raw=raw_input)
+
+    # --- investigation reasoning ---
+    m = _LINK_RE.search(norm)
+    if m:
+        return _r("link", topic=f"{m.group(1).strip()}|||{m.group(2).strip()}", raw=raw_input)
+
+    m = _CONTRA_RE.search(norm)
+    if m:
+        subject = m.group(1).strip() if m.group(1) else None
+        return _r("contradictions", topic=subject, raw=raw_input)
+
+    m = _PROFILE_RE.search(norm)
+    if m:
+        return _r("profile", npc_hint=m.group(1).strip(), raw=raw_input)
+
+    m = _ANALYZE_RE.search(norm)
+    if m:
+        return _r("analyze", topic=m.group(1).strip(), raw=raw_input)
 
     # --- time ---
     if re.search(r"\b(wait|pass time|sleep|rest|advance time)\b", norm):

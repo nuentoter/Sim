@@ -49,6 +49,40 @@ def _npc_not_found(name_hint: Optional[str], state: GameState) -> dict:
 # Handlers
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Subject resolution — maps player-typed names to canonical subject_ids
+# ---------------------------------------------------------------------------
+
+SUBJECT_MAP: dict = {
+    "tom": "tom_baker", "baker": "tom_baker", "tom baker": "tom_baker",
+    "petra": "marina_manager", "vance": "marina_manager", "marina manager": "marina_manager",
+    "nour": "cafe_owner", "saleh": "cafe_owner", "nour saleh": "cafe_owner",
+    "hargrove": "hargrove", "reginald": "hargrove", "reginald hargrove": "hargrove",
+    "eleanor": "eleanor", "eleanor voss": "eleanor", "voss": "eleanor",
+    "marina": "marina",
+    "manor": "hargrove",
+    "ledger": "ledger",
+    "watch": "hargrove", "pocket watch": "hargrove",
+    "boat": "marina", "skiff": "marina",
+    "letters": "hargrove",
+}
+
+
+def _resolve_subject(hint: Optional[str]) -> Optional[str]:
+    if not hint:
+        return None
+    key = hint.lower().strip()
+    # Exact lookup first
+    if key in SUBJECT_MAP:
+        return SUBJECT_MAP[key]
+    # Partial match
+    for k, v in SUBJECT_MAP.items():
+        if k in key or key in k:
+            return v
+    return key   # pass through as-is (may match subject_ids directly)
+
+
 def handle_help(state: GameState, parsed: dict) -> dict:
     roster = npc_roster(state.npcs)
     msg = (
@@ -65,6 +99,11 @@ def handle_help(state: GameState, parsed: dict) -> dict:
         "  status                         — review case progress\n"
         "  solve case                     — attempt to close the case\n"
         "  reset                          — start over\n\n"
+        "Investigation reasoning:\n"
+        "  analyze <subject>              — all evidence about a subject\n"
+        "  contradictions [subject]       — list detected conflicts\n"
+        "  profile <NPC name>             — full epistemic breakdown of an NPC\n"
+        "  link <evidence_id> to <id>     — connect two pieces of evidence\n\n"
         f"People you know of:\n{roster}"
     )
     return _response(msg, state)
@@ -406,6 +445,186 @@ def _available_topics(npc: NPC) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Investigation reasoning handlers
+# ---------------------------------------------------------------------------
+
+def handle_analyze(state: GameState, parsed: dict) -> dict:
+    """Aggregate all evidence (truths, rumors, beliefs, contradictions) for a subject."""
+    subject_key = _resolve_subject(parsed.get("topic"))
+    if not subject_key:
+        return _response(
+            "Analyze what? Try: 'analyze tom', 'analyze hargrove', 'analyze eleanor'.",
+            state,
+        )
+
+    data = state.board.analyze_subject(
+        subject_key, state.truth_events, state.rumors, state.npcs
+    )
+
+    # Format truths
+    truth_lines = [f"  [TRUTH] {t['description'][:90]}" for t in data["confirmed_truths"]]
+    truth_section = "\n".join(truth_lines) or "  none on record"
+
+    # Format active rumors
+    rumor_lines = [
+        f"  [RUMOR cred:{r['credibility']:3d}] {r['content'][:80]}"
+        for r in data["active_rumors"]
+    ]
+    rumor_section = "\n".join(rumor_lines) or "  none circulating"
+
+    # Format contradictions
+    contra_lines = [
+        f"  [CONFLICT sev:{c['severity']}] {c['description']}"
+        for c in data["contradictions"]
+    ]
+    contra_section = "\n".join(contra_lines) or "  none detected"
+
+    # Format NPC beliefs
+    belief_lines = []
+    for npc_name, beliefs in data["npc_beliefs"].items():
+        for b in beliefs:
+            belief_lines.append(f"  {npc_name} [{b['confidence']}%]: {b['statement'][:75]}")
+    belief_section = "\n".join(belief_lines) or "  no NPC beliefs formed yet"
+
+    # Format manual links
+    link_lines = [f"  {l['from']} → {l['to']} ({l['reasoning'][:50]})" for l in data["manual_links"]]
+    link_section = "\n".join(link_lines) if link_lines else "  none"
+
+    label = subject_key.replace("_", " ").title()
+    msg = (
+        f"=== Analysis: {label} ===\n\n"
+        f"Confirmed Truths:\n{truth_section}\n\n"
+        f"Active Rumors:\n{rumor_section}\n\n"
+        f"Contradictions:\n{contra_section}\n\n"
+        f"NPC Beliefs:\n{belief_section}\n\n"
+        f"Linked Evidence:\n{link_section}"
+    )
+    return _response(msg, state)
+
+
+def handle_contradictions(state: GameState, parsed: dict) -> dict:
+    """List all detected contradictions, optionally filtered by subject."""
+    subject_raw = parsed.get("topic")
+    subject_key = _resolve_subject(subject_raw) if subject_raw else None
+
+    contras = state.board.get_contradictions_for(subject_key)
+    if not contras:
+        scope = f" involving {subject_key.replace('_', ' ')}" if subject_key else ""
+        return _response(
+            f"No contradictions detected{scope} yet. Keep gathering evidence.",
+            state,
+        )
+
+    sorted_c = sorted(contras, key=lambda c: c.severity, reverse=True)
+    lines = []
+    SEV_LABEL = {3: "MAJOR", 2: "NOTABLE", 1: "MINOR"}
+    for c in sorted_c:
+        lines.append(
+            f"  [{SEV_LABEL.get(c.severity, '?')}] {c.description}\n"
+            f"    A: {c.source_a_excerpt[:70]}\n"
+            f"    B: {c.source_b_excerpt[:70]}"
+        )
+
+    scope = f" about {subject_key.replace('_', ' ')}" if subject_key else ""
+    msg = f"=== Contradictions{scope} ({len(contras)}) ===\n\n" + "\n\n".join(lines)
+    return _response(msg, state)
+
+
+def handle_profile(state: GameState, parsed: dict) -> dict:
+    """Full epistemic breakdown of one NPC."""
+    npc = resolve_npc(parsed.get("npc_hint"), state.npcs)
+    if not npc:
+        return _npc_not_found(parsed.get("npc_hint"), state)
+
+    prof = state.board.npc_profile(npc, state.truth_events, state.rumors)
+
+    # Axes
+    axes = prof["axes"]
+    axes_line = f"mood:{axes['mood']}  stress:{axes['stress']}  suspicion:{axes['suspicion']}"
+
+    # Beliefs
+    bsummary = prof["belief_summary"]
+    aligned_lines = [
+        f"  [ALIGNED {b['confidence']:3d}%] {b['statement'][:80]}"
+        for b in prof["beliefs_aligned_with_truth"]
+    ] or ["  none yet"]
+    other_lines = [
+        f"  [UNVERIFIED {b['confidence']:3d}%] {b['statement'][:80]}"
+        for b in prof["beliefs_not_in_truth"]
+    ] or ["  none"]
+
+    # Rumor exposure
+    rumor_lines = [
+        f"  cred:{r['credibility']:3d} distort:{r['distortion_level']:2d}% — {r['content'][:70]}"
+        for r in prof["active_rumor_exposure"]
+    ] or ["  not exposed to active rumors"]
+
+    msg = (
+        f"=== Profile: {prof['name']} ===\n"
+        f"Role: {prof['role']}\n"
+        f"State: {axes_line}\n"
+        f"Reliability score: {prof['reliability_score']}/100\n"
+        f"Knowledge shared: {prof['knowledge_revealed']}/{prof['knowledge_total']}\n\n"
+        f"Beliefs ({bsummary['strong_count']}s / {bsummary['moderate_count']}m / {bsummary['weak_count']}w total):\n"
+        f"  Truth-aligned:\n" + "\n".join(f"  {l}" for l in aligned_lines) + "\n"
+        f"  Unverified:\n" + "\n".join(f"  {l}" for l in other_lines) + "\n\n"
+        f"Active rumor exposure:\n" + "\n".join(rumor_lines)
+    )
+    return _response(msg, state, hint=f"Try: 'analyze {npc.name.split()[0].lower()}'")
+
+
+def handle_link(state: GameState, parsed: dict) -> dict:
+    """
+    Manually link two evidence items.
+    Parser encodes both IDs as "source_id|||target_id" in parsed["topic"].
+    """
+    raw_topic = parsed.get("topic", "")
+    parts = raw_topic.split("|||")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return _response(
+            "Usage: link <source_id> to <target_id>\n"
+            "Example: link acced210 to truth_tom_pub",
+            state,
+        )
+
+    src_id = parts[0].strip()
+    tgt_id = parts[1].strip()
+
+    # Determine types by looking them up in the evidence pool
+    def _type_of(eid: str) -> str:
+        if any(t.id == eid for t in state.truth_events):
+            return "truth"
+        if any(r.id == eid for r in state.rumors):
+            return "rumor"
+        return "unknown"
+
+    src_type = _type_of(src_id)
+    tgt_type = _type_of(tgt_id)
+
+    if src_type == "unknown" or tgt_type == "unknown":
+        unknown = src_id if src_type == "unknown" else tgt_id
+        return _response(
+            f"Evidence ID not found: '{unknown}'. "
+            "Check rumor IDs in /state active_rumors or truth IDs starting with 'truth_'.",
+            state,
+        )
+
+    link = state.board.add_link(
+        src_type, src_id,
+        tgt_type, tgt_id,
+        reasoning="Player-established connection",
+        game_time=state.clock.description(),
+    )
+    return _response(
+        f"Link recorded: [{src_type}:{src_id}] → [{tgt_type}:{tgt_id}]\n"
+        f"Link ID: {link.id}\n"
+        "This connection will be included in future analysis.",
+        state,
+        event="link_created",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -425,6 +644,10 @@ HANDLERS = {
     "examine_clue":  handle_examine_clue,
     "solve":         handle_solve,
     "case":          handle_case,
+    "analyze":       handle_analyze,
+    "contradictions": handle_contradictions,
+    "profile":       handle_profile,
+    "link":          handle_link,
     "unknown":       handle_unknown,
 }
 
@@ -448,5 +671,8 @@ def dispatch(raw_input: str) -> dict:
     if tick_logs:
         STATE.social_log.extend(tick_logs)
         STATE.social_log = STATE.social_log[-50:]   # bounded ring buffer
+
+    # Sync investigation board — scan for new contradictions, rebuild hypotheses
+    STATE.board.sync(STATE.truth_events, STATE.rumors, STATE.clock.description())
 
     return result

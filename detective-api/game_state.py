@@ -16,6 +16,7 @@ from npc import build_npc_registry
 from case import Case
 from rumor import build_seed_rumors, NOISE_THRESHOLD
 from truth import build_seed_truths
+from investigation import InvestigationBoard
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ class GameState:
         self.case = Case()
         self.rumors: list = build_seed_rumors()       # global mutable rumor pool
         self.truth_events: list = build_seed_truths() # immutable canonical facts
+        self.board: InvestigationBoard = InvestigationBoard()
         self.started_at = time_module.time()
         self.command_count = 0
         self.social_log: list = []                    # ring-buffered background event log
@@ -91,6 +93,9 @@ class GameState:
                 npc_id: npc.belief_system.summary()
                 for npc_id, npc in self.npcs.items()
             },
+
+            # Tier 4 — investigation board (reasoning layer)
+            "investigation_board": self.board.board_summary(self.npcs, self.truth_events),
 
             # Raw NPC state (axes + memory)
             "npcs": {npc_id: npc.status() for npc_id, npc in self.npcs.items()},
