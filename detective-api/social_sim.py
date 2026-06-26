@@ -319,4 +319,13 @@ def tick(
         npc.shift_stress(-1)
         npc.shift_mood(1)
 
+    # Daily life simulation — move NPCs, generate social actions, tick goal urgency
+    from daily_life import run_daily_tick
+    period = "afternoon"
+    if "," in game_time:
+        period = game_time.split(",")[1].strip().lower()
+    life_rumors, life_logs = run_daily_tick(npcs, updated_rumors, game_time, period)
+    updated_rumors = updated_rumors + life_rumors
+    logs.extend(life_logs)
+
     return updated_rumors, logs

@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 from truth import BeliefSystem
+from daily_life import Schedule, Occupation, Relationship, PersonalGoal, DailyLifeAction
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +205,12 @@ class NPC:
     knowledge: list = field(default_factory=list)     # list[KnowledgeItem]
     heard_rumors: list = field(default_factory=list)  # list[Rumor] received via social sim
     belief_system: BeliefSystem = field(default_factory=BeliefSystem)
+    # Daily life simulation (all optional so existing NPC construction is unaffected)
+    schedule:      Optional[Schedule]    = field(default=None)
+    occupation:    Optional[Occupation]  = field(default=None)
+    relationships: list = field(default_factory=list)  # list[Relationship]
+    goals:         list = field(default_factory=list)  # list[PersonalGoal]
+    daily_log:     list = field(default_factory=list)  # list[DailyLifeAction], capped at 20
 
     # --- Memory helpers ---
 
@@ -475,6 +482,78 @@ def build_npc_registry() -> dict:
             mood_min=15,
             stress_max=90,
         ),
+    ]
+
+    # -----------------------------------------------------------------------
+    # Daily life — Tom Baker
+    # -----------------------------------------------------------------------
+    tom.schedule = Schedule(
+        morning=["home"],
+        afternoon=["pub"],
+        evening=["pub"],
+        night=["pub"],
+    )
+    tom.occupation = Occupation(
+        title="Retired Fisherman",
+        employer="Self (seasonal odd-jobs)",
+        income_level="low",
+        social_status="low",
+    )
+    tom.relationships = [
+        Relationship("marina_manager", "Petra Vance", "business",    30, "occasional dock work"),
+        Relationship("cafe_owner",     "Nour Saleh",  "acquaintance", 20, "regular customer"),
+    ]
+    tom.goals = [
+        PersonalGoal("hide_mistake",       "Hide a past mistake",      "criminal", urgency=70),
+        PersonalGoal("protect_reputation", "Protect his reputation",   "social",   urgency=58),
+    ]
+
+    # -----------------------------------------------------------------------
+    # Daily life — Petra Vance (marina_manager)
+    # -----------------------------------------------------------------------
+    marina.schedule = Schedule(
+        morning=["marina"],
+        afternoon=["marina"],
+        evening=["home"],
+        night=["home"],
+    )
+    marina.occupation = Occupation(
+        title="Marina Manager",
+        employer="Island Harbour Authority",
+        income_level="medium",
+        social_status="medium",
+    )
+    marina.relationships = [
+        Relationship("tom_baker",  "Tom Baker",  "business",  30, "occasional dock work"),
+        Relationship("cafe_owner", "Nour Saleh", "friendship", 55, "old friends, daily coffee"),
+    ]
+    marina.goals = [
+        PersonalGoal("protect_reputation", "Protect her professional standing", "social",    urgency=50),
+        PersonalGoal("earn_money",         "Increase marina revenue",            "financial", urgency=32),
+    ]
+
+    # -----------------------------------------------------------------------
+    # Daily life — Nour Saleh (cafe_owner)
+    # -----------------------------------------------------------------------
+    cafe.schedule = Schedule(
+        morning=["cafe"],
+        afternoon=["cafe"],
+        evening=["cafe"],
+        night=["home"],
+    )
+    cafe.occupation = Occupation(
+        title="Cafe Owner",
+        employer="Self",
+        income_level="medium",
+        social_status="medium",
+    )
+    cafe.relationships = [
+        Relationship("marina_manager", "Petra Vance", "friendship", 60, "closest friend on island"),
+        Relationship("tom_baker",      "Tom Baker",   "business",   20, "occasional customer"),
+    ]
+    cafe.goals = [
+        PersonalGoal("earn_money",    "Grow the cafe business",  "financial", urgency=50),
+        PersonalGoal("seek_promotion","Open a second location",  "social",    urgency=25),
     ]
 
     return {

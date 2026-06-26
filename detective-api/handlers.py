@@ -572,9 +572,55 @@ def handle_profile(state: GameState, parsed: dict) -> dict:
         for r in prof["active_rumor_exposure"]
     ] or ["  not exposed to active rumors"]
 
+    # --- Daily life section ---
+    occ = getattr(npc, "occupation", None)
+    occ_line = (
+        f"{occ.title} @ {occ.employer} | income: {occ.income_level} | status: {occ.social_status}"
+        if occ else "Unknown"
+    )
+
+    goals = getattr(npc, "goals", [])
+    goal_lines = [
+        f"  [{g.urgency_label()} {g.urgency:3d}] {g.label}  ({g.category})"
+        for g in goals if g.active
+    ] or ["  none on record"]
+
+    schedule = getattr(npc, "schedule", None)
+    sched_line = ""
+    if schedule:
+        sched_line = (
+            f"\nSchedule: morning→{', '.join(schedule.morning) or '—'}"
+            f"  afternoon→{', '.join(schedule.afternoon) or '—'}"
+            f"  evening→{', '.join(schedule.evening) or '—'}"
+            f"  night→{', '.join(schedule.night) or '—'}"
+        )
+
+    rels = getattr(npc, "relationships", [])
+    rel_lines = [
+        f"  {r.kind.capitalize()} with {r.target_name} (strength: {r.strength})"
+        + (f" — {r.note}" if r.note else "")
+        for r in rels
+    ] or ["  none recorded"]
+
+    recent_actions = getattr(npc, "daily_log", [])[-5:]
+    activity_lines = [
+        f"  {a.action_type.upper()} at {a.location}"
+        + (f" with {a.target_name}" if a.target_name else "")
+        + (f"  ({a.game_time})" if a.game_time else "")
+        + ("  [goal-driven]" if a.goal_driven else "")
+        for a in recent_actions
+    ] or ["  no activity recorded yet"]
+
     msg = (
         f"=== Profile: {prof['name']} ===\n"
         f"Role: {prof['role']}\n"
+        f"Location: {npc.location}\n"
+        f"Occupation: {occ_line}"
+        f"{sched_line}\n\n"
+        f"Personal Goals:\n" + "\n".join(goal_lines) + "\n\n"
+        f"Relationships:\n" + "\n".join(rel_lines) + "\n\n"
+        f"Recent Activities:\n" + "\n".join(activity_lines) + "\n\n"
+        f"── Investigation Data ──────────────────────────\n"
         f"State: {axes_line}\n"
         f"Reliability score: {prof['reliability_score']}/100\n"
         f"Knowledge shared: {prof['knowledge_revealed']}/{prof['knowledge_total']}\n\n"

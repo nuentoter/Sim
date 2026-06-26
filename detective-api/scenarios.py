@@ -24,6 +24,11 @@ from dataclasses import dataclass
 from typing import Callable
 import uuid
 
+# Daily life types — imported lazily inside builders to avoid circular import at module load
+def _dl():
+    from daily_life import Schedule, Occupation, Relationship, PersonalGoal
+    return Schedule, Occupation, Relationship, PersonalGoal
+
 
 # ---------------------------------------------------------------------------
 # Scenario dataclass
@@ -179,6 +184,47 @@ def _harbor_npcs():
         ]
     )
 
+    Schedule, Occupation, Relationship, PersonalGoal = _dl()
+
+    petra.schedule = Schedule(morning=["marina"], afternoon=["marina"],
+                              evening=["home"],   night=["home"])
+    petra.occupation = Occupation("Marina Manager", "Island Harbour Authority",
+                                  "medium", "medium")
+    petra.relationships = [
+        Relationship("reg_coyle",   "Reg Coyle",   "business", 55, "direct working relationship"),
+        Relationship("kay_devereux","Kay Devereux", "business", 35, "fuel supply contract"),
+    ]
+    petra.goals = [
+        PersonalGoal("protect_reputation", "Protect professional reputation", "social",    urgency=65),
+        PersonalGoal("earn_money",         "Keep marina financially solvent",  "financial", urgency=40),
+    ]
+
+    reg.schedule = Schedule(morning=["harbour_office"], afternoon=["harbour_office"],
+                            evening=["pub"],            night=["home"])
+    reg.occupation = Occupation("Harbour Master", "Island Harbour Authority",
+                                "medium", "medium")
+    reg.relationships = [
+        Relationship("petra_vance", "Petra Vance", "business", 50, "direct line manager"),
+        Relationship("kay_devereux","Kay Devereux", "business", 40, "supplier contact"),
+    ]
+    reg.goals = [
+        PersonalGoal("hide_mistake",       "Conceal involvement in shortfall", "criminal", urgency=80),
+        PersonalGoal("protect_reputation", "Maintain standing as harbour master","social",  urgency=70),
+    ]
+
+    kay.schedule = Schedule(morning=["marina"],  afternoon=["cafe"],
+                            evening=["home"],    night=["home"])
+    kay.occupation = Occupation("Fuel Supplier Representative", "Callow Marine Supplies",
+                                "medium", "medium")
+    kay.relationships = [
+        Relationship("reg_coyle",   "Reg Coyle",   "business", 45, "key client contact"),
+        Relationship("petra_vance", "Petra Vance", "business", 30, "account manager"),
+    ]
+    kay.goals = [
+        PersonalGoal("protect_reputation","Clear supplier's name",         "social",    urgency=60),
+        PersonalGoal("earn_money",        "Retain island marina contract", "financial", urgency=50),
+    ]
+
     return {"petra_vance": petra, "reg_coyle": reg, "kay_devereux": kay}
 
 
@@ -308,6 +354,47 @@ def _tourist_npcs():
                 suspicion_max=65, mood_min=30),
         ]
     )
+
+    Schedule, Occupation, Relationship, PersonalGoal = _dl()
+
+    tom_r.schedule = Schedule(morning=["pub"],   afternoon=["pub"],
+                              evening=["pub"],   night=["pub"])
+    tom_r.occupation = Occupation("Pub Landlord", "The Rusty Anchor",
+                                  "medium", "medium")
+    tom_r.relationships = [
+        Relationship("sienna_ward",  "Sienna Ward",  "business",    45, "island trade — tourists stay at her hotel"),
+        Relationship("pascal_dubois","Pascal Dubois", "friendship",  55, "fishing trade friends"),
+    ]
+    tom_r.goals = [
+        PersonalGoal("earn_money",         "Keep the pub profitable",       "financial", urgency=45),
+        PersonalGoal("protect_reputation", "Protect pub's safe reputation", "social",    urgency=40),
+    ]
+
+    sienna.schedule = Schedule(morning=["hotel"], afternoon=["hotel"],
+                               evening=["hotel"], night=["home"])
+    sienna.occupation = Occupation("Hotel Owner", "Harbour View Hotel",
+                                   "medium", "high")
+    sienna.relationships = [
+        Relationship("tom_renner",   "Tom Renner",   "business",  40, "tourist referrals"),
+        Relationship("pascal_dubois","Pascal Dubois", "acquaintance", 20, "occasional boat trips"),
+    ]
+    sienna.goals = [
+        PersonalGoal("protect_reputation","Protect hotel's reputation",   "social",    urgency=72),
+        PersonalGoal("hide_mistake",      "Not get blamed for disappearance","criminal",urgency=55),
+    ]
+
+    pascal.schedule = Schedule(morning=["marina"],  afternoon=["marina"],
+                               evening=["pub"],     night=["home"])
+    pascal.occupation = Occupation("Fisherman", "Self (fishing vessel)",
+                                   "low", "low")
+    pascal.relationships = [
+        Relationship("tom_renner", "Tom Renner", "friendship", 60, "regular at the pub"),
+        Relationship("sienna_ward","Sienna Ward", "acquaintance", 15, "sees her at harbour events"),
+    ]
+    pascal.goals = [
+        PersonalGoal("earn_money",  "Maintain fishing livelihood",  "financial", urgency=40),
+        PersonalGoal("help_friend", "Look out for Tom's interests", "personal",  urgency=20),
+    ]
 
     return {"tom_renner": tom_r, "sienna_ward": sienna, "pascal_dubois": pascal}
 
@@ -446,6 +533,49 @@ def _election_npcs():
                 suspicion_max=80, mood_min=15),
         ]
     )
+
+    Schedule, Occupation, Relationship, PersonalGoal = _dl()
+
+    pike.schedule = Schedule(morning=["council_chambers"], afternoon=["council_chambers"],
+                             evening=["pub"],              night=["home"])
+    pike.occupation = Occupation("Alderman / Council Leader", "Island Council",
+                                 "high", "high")
+    pike.relationships = [
+        Relationship("nadia_cross", "Nadia Cross", "business", 60, "returning officer — institutional authority"),
+        Relationship("jack_varro",  "Jack Varro",  "rivalry",  70, "hostile press coverage"),
+    ]
+    pike.goals = [
+        PersonalGoal("protect_reputation", "Maintain political legitimacy",    "social",    urgency=85),
+        PersonalGoal("hide_mistake",       "Suppress evidence of interference","criminal",  urgency=78),
+        PersonalGoal("seek_promotion",     "Secure second term unopposed",      "social",    urgency=60),
+    ]
+
+    nadia.schedule = Schedule(morning=["council_chambers"], afternoon=["council_chambers"],
+                              evening=["home"],             night=["home"])
+    nadia.occupation = Occupation("Returning Officer", "Electoral Commission (Island)",
+                                  "medium", "high")
+    nadia.relationships = [
+        Relationship("alderman_pike","Alderman Pike", "business", 55, "electoral authority relationship"),
+        Relationship("jack_varro",  "Jack Varro",    "rivalry",  40, "press scrutiny"),
+    ]
+    nadia.goals = [
+        PersonalGoal("protect_reputation","Defend impartiality of election",   "social",   urgency=80),
+        PersonalGoal("hide_mistake",      "Conceal procedural irregularities", "criminal", urgency=65),
+    ]
+
+    jack.schedule = Schedule(morning=["cafe"],   afternoon=["harbour_office"],
+                             evening=["pub"],    night=["home"])
+    jack.occupation = Occupation("Journalist", "The Island Courier",
+                                 "low", "medium")
+    jack.relationships = [
+        Relationship("alderman_pike","Alderman Pike", "rivalry",  75, "investigative target"),
+        Relationship("nadia_cross", "Nadia Cross",   "rivalry",  35, "reluctant source"),
+    ]
+    jack.goals = [
+        PersonalGoal("seek_promotion",     "Break the election story nationally","social",   urgency=75),
+        PersonalGoal("protect_reputation", "Maintain journalistic credibility",  "social",   urgency=55),
+        PersonalGoal("help_friend",        "Expose injustice for Drummond",      "personal", urgency=60),
+    ]
 
     return {"alderman_pike": pike, "nadia_cross": nadia, "jack_varro": jack}
 
