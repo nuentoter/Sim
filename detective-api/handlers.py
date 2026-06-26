@@ -106,6 +106,9 @@ def handle_help(state: GameState, parsed: dict) -> dict:
         "  contradictions [subject]       — list detected conflicts\n"
         "  profile <NPC name>             — full epistemic breakdown of an NPC\n"
         "  link <evidence_id> to <id>     — connect two pieces of evidence\n\n"
+        "Scenarios:\n"
+        "  scenario list                  — list available investigations\n"
+        "  scenario load <id>             — load a different scenario\n\n"
         f"People you know of:\n{roster}"
     )
     return _response(msg, state)
@@ -635,6 +638,62 @@ def handle_link(state: GameState, parsed: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Scenario management
+# ---------------------------------------------------------------------------
+
+def handle_scenario(state: GameState, parsed: dict) -> dict:
+    import scenarios as _sc
+
+    topic = (parsed.get("topic") or "").strip().lower()
+
+    # "scenario list" — show all available scenarios
+    if not topic or topic == "list":
+        lines = ["Available scenarios:", ""]
+        for s in _sc.SCENARIOS.values():
+            marker = " ◀ active" if s.id == getattr(state, "scenario_id", "hargrove_affair") else ""
+            lines.append(f"  {s.id}{marker}")
+            lines.append(f"    {s.name}")
+            lines.append(f"    {s.description[:120]}{'…' if len(s.description) > 120 else ''}")
+            lines.append("")
+        lines.append("Usage: scenario load <id>")
+        lines.append("       scenario load harbor_fuel")
+        return _response("\n".join(lines), state)
+
+    # "scenario load <name>"
+    if topic.startswith("load "):
+        name = topic[5:].strip()
+    else:
+        # allow "scenario harbor_fuel" as shorthand
+        name = topic
+
+    scenario = _sc.resolve_scenario(name)
+    if not scenario:
+        known = ", ".join(s.name for s in _sc.SCENARIOS.values())
+        return _response(
+            f"Unknown scenario '{name}'. Available: {known}",
+            state,
+            hint="Use 'scenario list' to see available scenarios.",
+        )
+
+    # Mutate the existing state object in-place.
+    # app.py holds a direct reference to this object (from game_state import STATE),
+    # so in-place mutation is the only way to make /state reflect the change.
+    state.load_from_scenario(scenario)
+
+    return _response(
+        f"Scenario loaded: {scenario.name}\n\n"
+        f"{scenario.description}\n\n"
+        f"Case: {state.case.title}\n"
+        f"NPCs: {', '.join(npc.name for npc in state.npcs.values())}\n"
+        f"Starting truths: {len(state.truth_events)}\n"
+        f"Starting rumors: {len(state.rumors)}\n\n"
+        "All investigation systems reset. Type 'help' to begin.",
+        state,
+        event="scenario_loaded",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Focus + Overview
 # ---------------------------------------------------------------------------
 
@@ -758,6 +817,7 @@ HANDLERS = {
     "link":           handle_link,
     "focus":          handle_focus,
     "overview":       handle_overview,
+    "scenario":       handle_scenario,
     "unknown":        handle_unknown,
 }
 

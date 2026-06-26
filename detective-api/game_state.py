@@ -59,9 +59,39 @@ class GameState:
         self.started_at = time_module.time()
         self.command_count = 0
         self.social_log: list = []                    # ring-buffered background event log
+        self.scenario_id: str = "hargrove_affair"
 
     def reset(self):
         self.__init__()
+
+    @classmethod
+    def from_scenario(cls, scenario) -> "GameState":
+        """Create a fresh GameState pre-populated with a scenario's data."""
+        state = cls.__new__(cls)
+        state._apply_scenario(scenario)
+        return state
+
+    def load_from_scenario(self, scenario):
+        """
+        Reset this GameState in-place for a new scenario.
+
+        Mutates self so that all existing references (including app.py's
+        module-level STATE binding) see the new scenario data immediately.
+        """
+        self._apply_scenario(scenario)
+
+    def _apply_scenario(self, scenario):
+        """Shared setup used by both from_scenario and load_from_scenario."""
+        self.clock = GameClock()
+        self.case = Case(title=scenario.case_title, victim=scenario.case_victim)
+        self.npcs = scenario.build_npcs()
+        self.truth_events = scenario.build_truths()
+        self.rumors = scenario.build_rumors()
+        self.board = InvestigationBoard()
+        self.started_at = time_module.time()
+        self.command_count = 0
+        self.social_log = []
+        self.scenario_id = scenario.id
 
     # --- Epistemic helpers ---
 
@@ -104,6 +134,7 @@ class GameState:
 
             "social_log": self.social_log[-10:],
             "commands_issued": self.command_count,
+            "scenario_id": getattr(self, "scenario_id", "hargrove_affair"),
         }
 
 

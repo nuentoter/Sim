@@ -117,6 +117,11 @@ def parse(raw_input: str) -> dict:
     if re.search(r"\b(reset|restart|new game)\b", norm):
         return _r("reset", raw=raw_input)
 
+    # --- scenario management ---
+    m = re.search(r"\bscenario\s+(.*)", norm)
+    if m:
+        return _r("scenario", topic=m.group(1).strip(), raw=raw_input)
+
     # --- investigation reasoning ---
     if re.search(r"\b(overview|big picture|what matters|what do i know|summarize|summary)\b", norm):
         return _r("overview", raw=raw_input)

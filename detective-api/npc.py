@@ -512,7 +512,12 @@ def resolve_npc(name_fragment: str, registry: dict) -> Optional[NPC]:
     frag = name_fragment.lower().strip()
     npc_id = NPC_ALIASES.get(frag)
     if npc_id:
-        return registry.get(npc_id)
+        npc = registry.get(npc_id)
+        if npc:
+            return npc
+        # Alias resolves to an ID absent in this scenario's registry
+        # (e.g. "petra" → "marina_manager" in a non-default scenario).
+        # Fall through to fuzzy search so the player still finds the right NPC.
     # Fuzzy: check if fragment appears in any NPC name or id
     for npc in registry.values():
         if frag in npc.name.lower() or frag in npc.id:
