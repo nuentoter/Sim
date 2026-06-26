@@ -635,6 +635,104 @@ def handle_link(state: GameState, parsed: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Focus + Overview
+# ---------------------------------------------------------------------------
+
+def handle_focus(state: GameState, parsed: dict) -> dict:
+    topic = (parsed.get("topic") or "").strip()
+
+    # "unfocus" / "clear focus" → topic will be None or empty
+    if not topic:
+        if state.board.focus_subject:
+            old = state.board.focus_subject
+            state.board.clear_focus(state.clock.description())
+            return _response(
+                f"Investigation focus on '{old.replace('_', ' ')}' cleared.\n"
+                "All evidence is now weighted equally.",
+                state, event="focus_cleared",
+            )
+        return _response(
+            "No active focus. Use 'focus <subject>' to lock investigation emphasis.\n"
+            "Examples: 'focus tom', 'focus hargrove', 'focus eleanor', 'focus marina'",
+            state,
+        )
+
+    subject_key = _resolve_subject(topic)
+    if not subject_key:
+        # Fall back to topic as-is (allows focusing on any free-form subject)
+        subject_key = topic.lower().replace(" ", "_")
+
+    state.board.set_focus(subject_key, state.clock.description())
+    return _response(
+        f"Investigation focus locked: {subject_key.replace('_', ' ').title()}\n"
+        "Related entities will rise in salience. Use 'overview' to see prioritised evidence.\n"
+        "Use 'unfocus' to release.",
+        state, event="focus_set",
+    )
+
+
+def handle_overview(state: GameState, parsed: dict) -> dict:
+    ov = state.board.overview(
+        state.truth_events, state.rumors, state.npcs, state.command_count
+    )
+
+    lines = ["=== Investigation Overview ===", ""]
+
+    if ov["focus"]:
+        lines.append(f"Active Focus: {ov['focus'].replace('_', ' ').title()}")
+        lines.append("")
+
+    # Top hypotheses
+    lines.append("Top Hypotheses:")
+    if ov["top_hypotheses"]:
+        for h in ov["top_hypotheses"]:
+            lines.append(
+                f"  [{h['confidence']}% conf | salience {h['salience']}] "
+                f"{h['statement']} "
+                f"({h['supporting_count']} supporting, {h['contradicting_count']} contradicting)"
+            )
+    else:
+        lines.append("  None yet — gather more evidence.")
+    lines.append("")
+
+    # Top contradictions
+    lines.append("Key Contradictions:")
+    if ov["top_contradictions"]:
+        for c in ov["top_contradictions"]:
+            lines.append(
+                f"  [sev:{c['severity']} | salience {c['salience']}] {c['description']}"
+            )
+    else:
+        lines.append("  No contradictions detected yet.")
+    lines.append("")
+
+    # Unstable beliefs
+    lines.append("Most Uncertain NPCs:")
+    if ov["most_unstable_beliefs"]:
+        for item in ov["most_unstable_beliefs"]:
+            pct = int(item["instability"] * 100)
+            lines.append(
+                f"  {item['npc']}: {pct}% weak beliefs across {item['belief_count']} total"
+            )
+    else:
+        lines.append("  Insufficient belief data.")
+    lines.append("")
+
+    # Reliable sources
+    lines.append("Most Reliable Sources:")
+    if ov["most_reliable_sources"]:
+        for src in ov["most_reliable_sources"]:
+            lines.append(
+                f"  {src['npc']}: {src['reliability']}% truth-aligned "
+                f"({src['aligned']}/{src['belief_count']} beliefs)"
+            )
+    else:
+        lines.append("  No reliability data yet.")
+
+    return _response("\n".join(lines), state)
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
