@@ -3,6 +3,7 @@ Flask entry point for the detective game API.
 """
 
 import os
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -10,8 +11,24 @@ from handlers import dispatch
 from game_state import STATE
 import scenarios as _sc
 
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 CORS(app)
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(exc):
+    """
+    Catch-all at the API boundary — ensures every unhandled exception
+    returns structured JSON rather than Flask's default HTML 500 page.
+    Logs the full traceback so bugs remain visible in server output.
+    """
+    logger.exception("Unhandled exception in request: %s", exc)
+    return jsonify({
+        "error": "internal_server_error",
+        "detail": str(exc),
+    }), 500
 
 # Auto-initialize default scenario on startup so commands work immediately
 _default = _sc.resolve_scenario("hargrove_affair")

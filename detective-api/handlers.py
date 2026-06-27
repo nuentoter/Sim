@@ -7,12 +7,9 @@ handle_build_rapport. No NPC-specific logic lives here.
 
 from __future__ import annotations
 from typing import Optional
-import logging
 
 from game_state import GameState, STATE
 from npc import resolve_npc, npc_roster, NPC
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -878,34 +875,17 @@ def dispatch(raw_input: str) -> dict:
     STATE.command_count += 1
     handler = HANDLERS.get(parsed["action"], handle_unknown)
 
-    try:
-        result = handler(STATE, parsed)
-    except Exception as exc:
-        logger.error("Handler %s raised an exception: %s", handler.__name__, exc, exc_info=True)
-        return _response(
-            "Something went wrong processing that command. Your progress has been saved.",
-            STATE,
-            hint="Try a different command, or type 'help'.",
-        )
+    result = handler(STATE, parsed)
 
     # Compute salience before tick so social_sim can weight propagation
-    try:
-        STATE.board.compute_salience(
-            STATE.truth_events, STATE.rumors, STATE.npcs, STATE.command_count
-        )
-    except Exception as exc:
-        logger.error("compute_salience failed: %s", exc, exc_info=True)
+    STATE.board.compute_salience(
+        STATE.truth_events, STATE.rumors, STATE.npcs, STATE.command_count
+    )
 
     # Run background social tick — NPCs gossip, rumors decay, beliefs update
-    try:
-        social_sim.tick(STATE)
-    except Exception as exc:
-        logger.error("social_sim.tick failed: %s", exc, exc_info=True)
+    social_sim.tick(STATE)
 
     # Sync investigation board — scan for new contradictions, rebuild hypotheses
-    try:
-        STATE.board.sync(STATE.truth_events, STATE.rumors, STATE.clock.description())
-    except Exception as exc:
-        logger.error("board.sync failed: %s", exc, exc_info=True)
+    STATE.board.sync(STATE.truth_events, STATE.rumors, STATE.clock.description())
 
     return result

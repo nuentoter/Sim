@@ -146,16 +146,80 @@ def inject_player_rumor(
     game_time,
 ):
     """
-    Hook called after a player action (ask / accuse) so the simulation can
-    register that the player was seen interacting with an NPC.
+    Inject a player-action-derived rumor into the social network.
 
-    The hook intentionally does nothing beyond logging a world event — the
-    existing rumor-propagation pipeline (rumor_tick) handles spreading.
-    Adding new rumors here would duplicate propagation; this is a notification
-    only.  A future implementation could inject a seeded Rumor object if the
-    design calls for it.
+    ask    — fires only when an NPC has been questioned more than once;
+             islanders notice the detective repeatedly interrogating someone
+             and it becomes gossip. Appended to all_rumors so rumor_tick
+             picks it up naturally on the next social simulation step.
+
+    accuse — fires unconditionally; accusations are public, dramatic events
+             that spread island-wide immediately. All NPCs are marked as
+             knowing the rumor at creation time.
+
+    Rumors created here follow the same Rumor dataclass contract as
+    scenario-seeded rumors and pass through the same mutate() pipeline.
     """
-    pass
+    from rumor import Rumor, RumorEffect
+    import uuid
+
+    if action == "ask":
+        # Only generate gossip after repeated questioning — first contact is
+        # unremarkable; being questioned multiple times is island news.
+        if acting_npc.times_questioned() < 2:
+            return
+        topic_str = topic or "something"
+        content = (
+            f"Someone has been asking {acting_npc.name} pointed questions "
+            f"about {topic_str} — and not for the first time."
+        )
+        subjects = [acting_npc.id]
+        if topic:
+            subjects.append(topic.lower().replace(" ", "_"))
+        rumor = Rumor(
+            id=str(uuid.uuid4())[:8],
+            content=content,
+            original_content=content,
+            source_npc_id=acting_npc.id,
+            subjects=subjects,
+            credibility=65,
+            distortion_level=0,
+            age=0,
+            known_by=[acting_npc.id],
+            effects=[
+                RumorEffect(
+                    subject_id=acting_npc.id,
+                    suspicion_delta=5,
+                    stress_delta=3,
+                )
+            ],
+        )
+        all_rumors.append(rumor)
+
+    elif action == "accuse":
+        # Accusations are public events — every NPC on the island hears
+        # about it immediately (high credibility, no distortion yet).
+        content = f"Someone openly accused {acting_npc.name} in front of witnesses."
+        rumor = Rumor(
+            id=str(uuid.uuid4())[:8],
+            content=content,
+            original_content=content,
+            source_npc_id=acting_npc.id,
+            subjects=[acting_npc.id],
+            credibility=85,
+            distortion_level=0,
+            age=0,
+            known_by=list(npc_registry.keys()),
+            effects=[
+                RumorEffect(
+                    subject_id=acting_npc.id,
+                    suspicion_delta=20,
+                    stress_delta=10,
+                    mood_delta=-10,
+                )
+            ],
+        )
+        all_rumors.append(rumor)
 
 
 # -----------------------------
