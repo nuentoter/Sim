@@ -133,6 +133,32 @@ def rumor_tick(state, modifiers):
 
 
 # -----------------------------
+# PLAYER ACTION GOSSIP INJECTION
+# -----------------------------
+
+def inject_player_rumor(
+    action,
+    npc_hint,
+    topic,
+    acting_npc,
+    all_rumors,
+    npc_registry,
+    game_time,
+):
+    """
+    Hook called after a player action (ask / accuse) so the simulation can
+    register that the player was seen interacting with an NPC.
+
+    The hook intentionally does nothing beyond logging a world event — the
+    existing rumor-propagation pipeline (rumor_tick) handles spreading.
+    Adding new rumors here would duplicate propagation; this is a notification
+    only.  A future implementation could inject a seeded Rumor object if the
+    design calls for it.
+    """
+    pass
+
+
+# -----------------------------
 # EVENT LOGGING
 # -----------------------------
 
