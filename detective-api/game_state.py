@@ -1,4 +1,4 @@
-"""
+7th"""
 Core game state for Gull Island detective simulation.
 Now includes:
 - NPC registry
@@ -119,3 +119,9 @@ class GameState:
             "weather": self.weather.to_dict() if self.weather else None,
             "world_events": self.world_events[-50:] if self.world_events else []
         }
+
+# ------------------------------------------------------------
+# GLOBAL SINGLETON STATE (used by Flask app)
+# ------------------------------------------------------------
+
+STATE = GameState()
