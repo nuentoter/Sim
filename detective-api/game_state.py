@@ -1,142 +1,121 @@
 """
-Master game state — clock, NPC registry, case, rumor pool, and truth layer.
-
-Epistemic tiers in to_dict():
-  confirmed_truths  — TruthEvents (absolute, system-generated)
-  active_rumors     — Rumors with credibility > NOISE_THRESHOLD
-  noise             — count of rumors below threshold (noise, not shown in detail)
-  npc_beliefs       — per-NPC BeliefSystem summary (dominant beliefs only)
+Core game state for Gull Island detective simulation.
+Now includes:
+- NPC registry
+- Case state
+- Rumors
+- Investigation board
+- Scenario tracking
+- Weather system
 """
 
-from __future__ import annotations
-from dataclasses import dataclass
-import time as time_module
+from weather import WeatherSystem
 
-from npc import build_npc_registry
-from case import Case
-from rumor import build_seed_rumors, NOISE_THRESHOLD
-from truth import build_seed_truths
-from investigation import InvestigationBoard
-
-
-# ---------------------------------------------------------------------------
-# Time system
-# ---------------------------------------------------------------------------
-
-TIME_PERIODS = ["morning", "afternoon", "evening", "night"]
-
-
-@dataclass
-class GameClock:
-    period_index: int = 0
-    day: int = 1
-
-    @property
-    def period(self) -> str:
-        return TIME_PERIODS[self.period_index % len(TIME_PERIODS)]
-
-    def advance(self):
-        self.period_index += 1
-        if self.period_index % len(TIME_PERIODS) == 0:
-            self.day += 1
-
-    def description(self) -> str:
-        return f"Day {self.day}, {self.period.capitalize()}"
-
-
-# ---------------------------------------------------------------------------
-# GameState
-# ---------------------------------------------------------------------------
 
 class GameState:
     def __init__(self):
-        self.clock = GameClock()
-        self.npcs: dict = build_npc_registry()        # {npc_id: NPC}
-        self.case = Case()
-        self.rumors: list = build_seed_rumors()       # global mutable rumor pool
-        self.truth_events: list = build_seed_truths() # immutable canonical facts
-        self.board: InvestigationBoard = InvestigationBoard()
-        self.started_at = time_module.time()
+        # -----------------------------
+        # CORE SIMULATION STATE
+        # -----------------------------
+
+        self.npcs = {}                 # id -> NPC
+        self.case = None              # active case object
+        self.clock = None             # time system (existing in your project)
+        self.board = None             # investigation board
+
+        # -----------------------------
+        # SIMULATION LAYERS
+        # -----------------------------
+
+        self.rumors = []
+        self.truth_events = []
+        self.social_log = []
+
+        # -----------------------------
+        # WORLD SYSTEMS
+        # -----------------------------
+
+        self.weather = WeatherSystem()
+        self.world_events = []
+
+        # -----------------------------
+        # META STATE
+        # -----------------------------
+
+        self.scenario_id = None
         self.command_count = 0
-        self.social_log: list = []                    # ring-buffered background event log
-        self.scenario_id: str = "hargrove_affair"
 
-    def reset(self):
-        self.__init__()
+    # ------------------------------------------------------------
+    # CORE UTILITIES
+    # ------------------------------------------------------------
 
-    @classmethod
-    def from_scenario(cls, scenario) -> "GameState":
-        """Create a fresh GameState pre-populated with a scenario's data."""
-        state = cls.__new__(cls)
-        state._apply_scenario(scenario)
-        return state
+    def increment_command(self):
+        self.command_count += 1
+
+    def add_npc(self, npc):
+        self.npcs[npc.id] = npc
+
+    def get_npc(self, npc_id):
+        return self.npcs.get(npc_id)
+
+    # ------------------------------------------------------------
+    # SCENARIO SUPPORT (kept compatible with your existing system)
+    # ------------------------------------------------------------
 
     def load_from_scenario(self, scenario):
         """
-        Reset this GameState in-place for a new scenario.
-
-        Mutates self so that all existing references (including app.py's
-        module-level STATE binding) see the new scenario data immediately.
+        In-place reset + scenario load.
+        Critical: preserves object reference for Flask app.
         """
-        self._apply_scenario(scenario)
 
-    def _apply_scenario(self, scenario):
-        """Shared setup used by both from_scenario and load_from_scenario."""
-        self.clock = GameClock()
-        self.case = Case(title=scenario.case_title, victim=scenario.case_victim)
         self.npcs = scenario.build_npcs()
-        self.truth_events = scenario.build_truths()
+        self.case = scenario.build_case()
+        self.clock = scenario.build_clock() if hasattr(scenario, "build_clock") else self.clock
+        self.board = scenario.build_board() if hasattr(scenario, "build_board") else self.board
+
         self.rumors = scenario.build_rumors()
-        self.board = InvestigationBoard()
-        self.started_at = time_module.time()
-        self.command_count = 0
+        self.truth_events = scenario.build_truths()
+
         self.social_log = []
+        self.world_events = []
+
         self.scenario_id = scenario.id
+        self.command_count = 0
 
-    # --- Epistemic helpers ---
+        # reset weather to calm baseline
+        self.weather = WeatherSystem()
 
-    def active_rumors(self) -> list:
-        """Rumors above the noise threshold — still propagating."""
-        return [r for r in self.rumors if r.credibility > NOISE_THRESHOLD]
+    @classmethod
+    def from_scenario(cls, scenario):
+        """
+        Fresh instance constructor (for testing / isolation).
+        """
+        state = cls()
+        state.load_from_scenario(scenario)
+        return state
 
-    def noise_rumors(self) -> list:
-        """Rumors that have decayed below the noise threshold."""
-        return [r for r in self.rumors if r.credibility <= NOISE_THRESHOLD]
+    # ------------------------------------------------------------
+    # SERIALIZATION (for /state endpoint)
+    # ------------------------------------------------------------
 
-    def to_dict(self) -> dict:
-        active = self.active_rumors()
-        noise_count = len(self.noise_rumors())
-
+    def to_dict(self):
         return {
-            "time": self.clock.description(),
-            "case": self.case.summary(),
+            "scenario_id": self.scenario_id,
+            "command_count": self.command_count,
 
-            # Tier 1 — verified facts
-            "confirmed_truths": [t.to_dict() for t in self.truth_events],
+            # core systems
+            "npcs": {k: v.to_dict() for k, v in self.npcs.items()},
+            "case": self.case.to_dict() if self.case else None,
+            "clock": self.clock.to_dict() if self.clock else None,
 
-            # Tier 2 — active rumors (above noise floor)
-            "active_rumors": [r.to_dict() for r in active],
-            "noise_rumor_count": noise_count,
+            # simulation layers
+            "rumors": [r.to_dict() for r in self.rumors] if self.rumors else [],
+            "truth_events": [t.to_dict() for t in self.truth_events] if self.truth_events else [],
 
-            # Tier 3 — NPC derived beliefs (summaries only)
-            "npc_beliefs": {
-                npc_id: npc.belief_system.summary()
-                for npc_id, npc in self.npcs.items()
-            },
+            # investigation
+            "board": self.board.to_dict() if self.board else None,
 
-            # Tier 4 — investigation board (reasoning layer, salience-filtered top-5)
-            "investigation_board": self.board.board_summary(
-                self.npcs, self.truth_events, self.rumors, self.command_count
-            ),
-
-            # Raw NPC state (axes + memory)
-            "npcs": {npc_id: npc.status() for npc_id, npc in self.npcs.items()},
-
-            "social_log": self.social_log[-10:],
-            "commands_issued": self.command_count,
-            "scenario_id": getattr(self, "scenario_id", "hargrove_affair"),
+            # world state
+            "weather": self.weather.to_dict() if self.weather else None,
+            "world_events": self.world_events[-50:] if self.world_events else []
         }
-
-
-# Global singleton
-STATE = GameState()
