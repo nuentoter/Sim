@@ -8,9 +8,15 @@ from flask_cors import CORS
 
 from handlers import dispatch
 from game_state import STATE
+import scenarios as _sc
 
 app = Flask(__name__)
 CORS(app)
+
+# Auto-initialize default scenario on startup so commands work immediately
+_default = _sc.resolve_scenario("hargrove_affair")
+if _default:
+    STATE.load_from_scenario(_default)
 
 
 # ---------------------------------------------------------------------------

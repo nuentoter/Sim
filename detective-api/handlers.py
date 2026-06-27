@@ -877,22 +877,12 @@ def dispatch(raw_input: str) -> dict:
     result = handler(STATE, parsed)
 
     # Compute salience before tick so social_sim can weight propagation
-    salience_map = STATE.board.compute_salience(
+    STATE.board.compute_salience(
         STATE.truth_events, STATE.rumors, STATE.npcs, STATE.command_count
     )
 
     # Run background social tick — NPCs gossip, rumors decay, beliefs update
-    updated_rumors, tick_logs = social_sim.tick(
-        npcs=STATE.npcs,
-        all_rumors=STATE.rumors,
-        game_time=STATE.clock.description(),
-        day=STATE.clock.day,
-        salience_map=salience_map,
-    )
-    STATE.rumors = updated_rumors
-    if tick_logs:
-        STATE.social_log.extend(tick_logs)
-        STATE.social_log = STATE.social_log[-50:]   # bounded ring buffer
+    social_sim.tick(STATE)
 
     # Sync investigation board — scan for new contradictions, rebuild hypotheses
     STATE.board.sync(STATE.truth_events, STATE.rumors, STATE.clock.description())

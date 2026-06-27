@@ -1,8 +1,9 @@
-modules = ["nodejs-24", "python-3.11"]
+modules = ["nodejs-20", "python-3.11", "web"]
 
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -18,22 +19,22 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Detective Game API"
+args = "Start application"
 
 [[workflows.workflow]]
-name = "Detective Game API"
+name = "Start application"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd detective-api && python app.py"
-waitForPort = 8000
+args = "gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app"
+waitForPort = 5000
 
 [workflows.workflow.metadata]
-outputType = "console"
+outputType = "webview"
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "FLASK_VANILLA_JS"
 expertMode = true
 
 [postMerge]
@@ -42,3 +43,8 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+packages = ["openssl", "postgresql"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80

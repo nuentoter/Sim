@@ -32,8 +32,12 @@ def world_tick(state):
         rumor_tick(state, modifiers)
 
     # 5. BELIEF + INVESTIGATION UPDATES (existing systems)
-    if hasattr(state, "board"):
-        state.board.sync(state)
+    if hasattr(state, "board") and state.board and state.clock:
+        state.board.sync(
+            getattr(state, "truth_events", []),
+            getattr(state, "rumors", []),
+            state.clock.description(),
+        )
 
 
 def tick(state):

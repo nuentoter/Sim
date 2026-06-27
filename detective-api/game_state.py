@@ -10,6 +10,9 @@ Now includes:
 """
 
 from weather import WeatherSystem
+from clock import GameClock
+from case import Case
+from investigation import InvestigationBoard
 
 
 class GameState:
@@ -69,9 +72,9 @@ class GameState:
         """
 
         self.npcs = scenario.build_npcs()
-        self.case = scenario.build_case()
-        self.clock = scenario.build_clock() if hasattr(scenario, "build_clock") else self.clock
-        self.board = scenario.build_board() if hasattr(scenario, "build_board") else self.board
+        self.case = Case(title=scenario.case_title, victim=scenario.case_victim)
+        self.clock = GameClock()
+        self.board = InvestigationBoard()
 
         self.rumors = scenario.build_rumors()
         self.truth_events = scenario.build_truths()
@@ -84,6 +87,16 @@ class GameState:
 
         # reset weather to calm baseline
         self.weather = WeatherSystem()
+
+    def reset(self):
+        """
+        Reset to the default scenario (hargrove_affair).
+        Keeps the same object reference so Flask handlers stay in sync.
+        """
+        import scenarios as _sc
+        default = _sc.resolve_scenario("hargrove_affair")
+        if default:
+            self.load_from_scenario(default)
 
     @classmethod
     def from_scenario(cls, scenario):
@@ -104,8 +117,8 @@ class GameState:
             "command_count": self.command_count,
 
             # core systems
-            "npcs": {k: v.to_dict() for k, v in self.npcs.items()},
-            "case": self.case.to_dict() if self.case else None,
+            "npcs": {k: v.status() for k, v in self.npcs.items()},
+            "case": self.case.summary() if self.case else None,
             "clock": self.clock.to_dict() if self.clock else None,
 
             # simulation layers
@@ -113,7 +126,9 @@ class GameState:
             "truth_events": [t.to_dict() for t in self.truth_events] if self.truth_events else [],
 
             # investigation
-            "board": self.board.to_dict() if self.board else None,
+            "board": self.board.board_summary(
+                self.npcs, self.truth_events, self.rumors, self.command_count
+            ) if self.board else None,
 
             # world state
             "weather": self.weather.to_dict() if self.weather else None,
