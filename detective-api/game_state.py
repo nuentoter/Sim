@@ -1,4 +1,4 @@
-7th"""
+"""
 Core game state for Gull Island detective simulation.
 Now includes:
 - NPC registry
