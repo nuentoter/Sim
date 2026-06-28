@@ -8,7 +8,7 @@ Now includes:
 """
 
 import random
-from rumor import NOISE_THRESHOLD
+from rumor import NOISE_THRESHOLD, mutate
 
 
 def world_tick(state):
@@ -123,14 +123,17 @@ def npc_actions(state, modifiers):
 def rumor_tick(state, modifiers):
     """
     Applies weather-based credibility decay to all rumors, then propagates
-    each above-noise rumor to NPCs not yet in known_by (~20 % chance per
-    tick).  Effects are applied exactly once per NPC per rumor — known_by
+    each above-noise rumor to exactly one new NPC per tick (deterministic:
+    first eligible receiver in sorted NPC-ID order).  mutate() is called on
+    receipt so the rumor drifts naturally as it passes through the social
+    network.  Effects are applied exactly once per NPC per rumor — known_by
     is the single source of truth for "has received".
     """
     if not hasattr(state, "rumors"):
         return
 
     npcs = getattr(state, "npcs", {})
+    sorted_npc_ids = sorted(npcs.keys())
 
     for r in state.rumors:
         if not hasattr(r, "credibility"):
@@ -143,18 +146,29 @@ def rumor_tick(state, modifiers):
         if r.credibility <= NOISE_THRESHOLD:
             continue
 
-        # Propagate to NPCs not yet in known_by; apply effects exactly once.
-        for npc_id, npc in npcs.items():
-            if npc_id in r.known_by:
-                continue                     # already received — skip
-            if random.random() > 0.20:
-                continue                     # ~20 % spread chance per tick
-            r.known_by.append(npc_id)
-            npc.heard_rumors.append(r)
-            for effect in r.effects:
-                npc.shift_suspicion(effect.suspicion_delta)
-                npc.shift_mood(effect.mood_delta)
-                npc.shift_stress(effect.stress_delta)
+        # Deterministic receiver selection: first NPC (sorted IDs) not yet
+        # in known_by.  One receiver per rumor per tick — no randomness.
+        receiver = None
+        for npc_id in sorted_npc_ids:
+            if npc_id not in r.known_by:
+                receiver = npcs[npc_id]
+                break
+
+        if receiver is None:
+            continue  # all NPCs already know this rumor
+
+        # Mutate the rumor through the receiver's perceptual lens.
+        mutated = mutate(r, receiver.stress, receiver.suspicion)
+
+        # Deliver and mark as known (prevents re-application on future ticks).
+        receiver.heard_rumors.append(mutated)
+        r.known_by.append(receiver.id)
+
+        # Apply effects exactly once for this receiver.
+        for effect in mutated.effects:
+            receiver.shift_suspicion(effect.suspicion_delta)
+            receiver.shift_mood(effect.mood_delta)
+            receiver.shift_stress(effect.stress_delta)
 
 
 # -----------------------------
