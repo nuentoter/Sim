@@ -268,6 +268,16 @@ def inject_player_rumor(
         )
         all_rumors.append(rumor)
 
+        # Because known_by is pre-filled with all NPCs, rumor_tick will never
+        # select a receiver and effects would never apply.  Apply them
+        # immediately here — island-wide, instant reaction.
+        for npc in npc_registry.values():
+            for effect in rumor.effects:
+                npc.shift_suspicion(effect.suspicion_delta)
+                npc.shift_stress(effect.stress_delta)
+                npc.shift_mood(effect.mood_delta)
+            npc.heard_rumors.append(rumor)
+
 
 # -----------------------------
 # EVENT LOGGING
