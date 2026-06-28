@@ -14,9 +14,10 @@ Rumor:
     base          = credibility × 0.4                (0–40)
     spread        = min(npc_known_count, 5) × 5      (0–25)
     interest      = distortion_level × 0.10          (0–10)
-    contradiction = +10 if rumor is in a contradiction
-    recency       = max(0, 10 – age_in_commands) × 1.5
-    focus         = +20 if rumor.subjects ∩ focus_subject
+    contradiction  = +10 if rumor is in a contradiction
+    player_recency = max(0, 10 – commands_since_touched) × 1.5
+    age_decay      = max(0, 15 – rumor.age) × 0.5    (0–7.5, fades to 0 after 30 ticks)
+    focus          = +20 if rumor.subjects ∩ focus_subject
     → clamp 0–100
 
 Truth:
@@ -98,15 +99,16 @@ def score_rumor(
     interaction_log: dict,
     command_count: int,
 ) -> int:
-    npc_known = len([x for x in rumor.known_by if x != "player"])
-    base          = rumor.credibility * 0.4
-    spread        = min(npc_known, 5) * 5
-    interest      = rumor.distortion_level * 0.10
-    contra_boost  = 10 if rumor.id in contradiction_source_ids else 0
-    last          = interaction_log.get(rumor.id, 0)
-    recency       = max(0, 10 - (command_count - last)) * 1.5
-    focus_boost   = 20 if focus_subject and focus_subject in rumor.subjects else 0
-    return _clamp(base + spread + interest + contra_boost + recency + focus_boost)
+    npc_known      = len([x for x in rumor.known_by if x != "player"])
+    base           = rumor.credibility * 0.4
+    spread         = min(npc_known, 5) * 5
+    interest       = rumor.distortion_level * 0.10
+    contra_boost   = 10 if rumor.id in contradiction_source_ids else 0
+    last           = interaction_log.get(rumor.id, 0)
+    player_recency = max(0, 10 - (command_count - last)) * 1.5
+    age_decay      = max(0, 15 - rumor.age) * 0.5   # fades to 0 after 30 ticks
+    focus_boost    = 20 if focus_subject and focus_subject in rumor.subjects else 0
+    return _clamp(base + spread + interest + contra_boost + player_recency + age_decay + focus_boost)
 
 
 def score_truth(
