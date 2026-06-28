@@ -240,6 +240,8 @@ def inject_player_rumor(
                         stress_delta=3,
                     )
                 ],
+                origin="repetition",
+                trigger_score=0.0,
             )
             all_rumors.append(rumor)
 
@@ -273,6 +275,8 @@ def inject_player_rumor(
                         stress_delta=5,
                     )
                 ],
+                origin="significance",
+                trigger_score=round(significance, 2),
             )
             all_rumors.append(sig_rumor)
 
@@ -280,6 +284,18 @@ def inject_player_rumor(
         # Accusations are public events — every NPC on the island hears
         # about it immediately (high credibility, no distortion yet).
         content = f"Someone openly accused {acting_npc.name} in front of witnesses."
+        acc_effects = [
+            RumorEffect(
+                subject_id=acting_npc.id,
+                suspicion_delta=20,
+                stress_delta=10,
+                mood_delta=-10,
+            )
+        ]
+        acc_trigger_score = float(sum(
+            abs(e.suspicion_delta) + abs(e.stress_delta) + abs(e.mood_delta)
+            for e in acc_effects
+        ))
         rumor = Rumor(
             id=str(uuid.uuid4())[:8],
             content=content,
@@ -290,14 +306,9 @@ def inject_player_rumor(
             distortion_level=0,
             age=0,
             known_by=list(npc_registry.keys()),
-            effects=[
-                RumorEffect(
-                    subject_id=acting_npc.id,
-                    suspicion_delta=20,
-                    stress_delta=10,
-                    mood_delta=-10,
-                )
-            ],
+            effects=acc_effects,
+            origin="accuse",
+            trigger_score=acc_trigger_score,
         )
         all_rumors.append(rumor)
 

@@ -135,6 +135,8 @@ class Rumor:
     age: int = 0                     # ticks elapsed since creation
     known_by: list = field(default_factory=list)   # NPC IDs that have received this rumor
     effects: list = field(default_factory=list)    # list[RumorEffect]
+    origin: str = ""                 # "repetition" | "significance" | "accuse" | ""
+    trigger_score: float = 0.0      # significance score at creation time, or effect magnitude
 
     def to_dict(self) -> dict:
         return {
@@ -148,6 +150,8 @@ class Rumor:
             "age": self.age,
             "known_by": self.known_by,
             "is_distorted": self.distortion_level > 30,
+            "origin": self.origin,
+            "trigger_score": self.trigger_score,
         }
 
     def is_about(self, target: str) -> bool:
@@ -190,6 +194,8 @@ def mutate(rumor: Rumor, receiver_stress: int, receiver_suspicion: int) -> Rumor
         age=rumor.age,
         known_by=list(rumor.known_by),
         effects=list(rumor.effects),
+        origin=rumor.origin,
+        trigger_score=rumor.trigger_score,
     )
 
 
