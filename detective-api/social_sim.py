@@ -211,37 +211,70 @@ def inject_player_rumor(
     import uuid
 
     if action == "ask":
-        # Only generate gossip after repeated questioning — first contact is
-        # unremarkable; being questioned multiple times is island news.
-        if acting_npc.times_questioned() < 2:
-            return
-        topic_str = topic or "something"
-        content = (
-            f"Someone has been asking {acting_npc.name} pointed questions "
-            f"about {topic_str} — and not for the first time."
+        # Repetition threshold — only generate gossip when questioned more
+        # than once.  First contact is unremarkable; repeated questioning is
+        # island news.
+        if acting_npc.times_questioned() >= 2:
+            topic_str = topic or "something"
+            content = (
+                f"Someone has been asking {acting_npc.name} pointed questions "
+                f"about {topic_str} — and not for the first time."
+            )
+            subjects = [acting_npc.id]
+            if topic:
+                subjects.append(topic.lower().replace(" ", "_"))
+            rumor = Rumor(
+                id=str(uuid.uuid4())[:8],
+                content=content,
+                original_content=content,
+                source_npc_id=acting_npc.id,
+                subjects=subjects,
+                credibility=65,
+                distortion_level=0,
+                age=0,
+                known_by=[acting_npc.id],
+                effects=[
+                    RumorEffect(
+                        subject_id=acting_npc.id,
+                        suspicion_delta=5,
+                        stress_delta=3,
+                    )
+                ],
+            )
+            all_rumors.append(rumor)
+
+        # Significance trigger — fires even on first question when the NPC
+        # is in a notable state (high stress, suspicion, or revealed knowledge).
+        knowledge_revealed = sum(1 for k in acting_npc.knowledge if k.revealed)
+        significance = (
+            acting_npc.stress * 0.3
+            + acting_npc.suspicion * 0.3
+            + knowledge_revealed * 10
         )
-        subjects = [acting_npc.id]
-        if topic:
-            subjects.append(topic.lower().replace(" ", "_"))
-        rumor = Rumor(
-            id=str(uuid.uuid4())[:8],
-            content=content,
-            original_content=content,
-            source_npc_id=acting_npc.id,
-            subjects=subjects,
-            credibility=65,
-            distortion_level=0,
-            age=0,
-            known_by=[acting_npc.id],
-            effects=[
-                RumorEffect(
-                    subject_id=acting_npc.id,
-                    suspicion_delta=5,
-                    stress_delta=3,
-                )
-            ],
-        )
-        all_rumors.append(rumor)
+        if significance > 60:
+            topic_str = topic or "something"
+            sig_content = (
+                f"{acting_npc.name} was questioned about {topic_str} in detail."
+            )
+            sig_rumor = Rumor(
+                id=str(uuid.uuid4())[:8],
+                content=sig_content,
+                original_content=sig_content,
+                source_npc_id=acting_npc.id,
+                subjects=[acting_npc.id],
+                credibility=55,
+                distortion_level=5,
+                age=0,
+                known_by=[acting_npc.id],
+                effects=[
+                    RumorEffect(
+                        subject_id=acting_npc.id,
+                        suspicion_delta=5,
+                        stress_delta=5,
+                    )
+                ],
+            )
+            all_rumors.append(sig_rumor)
 
     elif action == "accuse":
         # Accusations are public events — every NPC on the island hears
