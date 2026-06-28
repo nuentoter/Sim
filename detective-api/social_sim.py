@@ -134,17 +134,22 @@ def rumor_tick(state, modifiers):
 
     npcs = getattr(state, "npcs", {})
     sorted_npc_ids = sorted(npcs.keys())
+    surviving = []
 
     for r in state.rumors:
         if not hasattr(r, "credibility"):
+            surviving.append(r)  # malformed — preserve, skip processing
             continue
 
+        r.age += 1
         # Existing behaviour: weather modifier decays credibility each tick.
         r.credibility *= modifiers["rumor_spread"]
 
-        # Noise-level rumors stop propagating.
+        # Noise-level rumors are pruned — they stop propagating.
         if r.credibility <= NOISE_THRESHOLD:
             continue
+
+        surviving.append(r)
 
         # Deterministic receiver selection: first NPC (sorted IDs) not yet
         # in known_by.  One receiver per rumor per tick — no randomness.
@@ -169,6 +174,9 @@ def rumor_tick(state, modifiers):
             receiver.shift_suspicion(effect.suspicion_delta)
             receiver.shift_mood(effect.mood_delta)
             receiver.shift_stress(effect.stress_delta)
+
+    # Prune noise-level rumors from the active list in-place.
+    state.rumors[:] = surviving
 
 
 # -----------------------------
