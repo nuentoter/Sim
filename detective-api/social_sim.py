@@ -8,6 +8,7 @@ Now includes:
 """
 
 import random
+from rumor import NOISE_THRESHOLD
 
 
 def world_tick(state):
@@ -121,15 +122,39 @@ def npc_actions(state, modifiers):
 
 def rumor_tick(state, modifiers):
     """
-    Placeholder hook for existing rumor system.
+    Applies weather-based credibility decay to all rumors, then propagates
+    each above-noise rumor to NPCs not yet in known_by (~20 % chance per
+    tick).  Effects are applied exactly once per NPC per rumor — known_by
+    is the single source of truth for "has received".
     """
+    if not hasattr(state, "rumors"):
+        return
 
-    # If you already have rumor propagation elsewhere,
-    # this just applies weather modifier conceptually.
-    if hasattr(state, "rumors"):
-        for r in state.rumors:
-            if hasattr(r, "credibility"):
-                r.credibility *= modifiers["rumor_spread"]
+    npcs = getattr(state, "npcs", {})
+
+    for r in state.rumors:
+        if not hasattr(r, "credibility"):
+            continue
+
+        # Existing behaviour: weather modifier decays credibility each tick.
+        r.credibility *= modifiers["rumor_spread"]
+
+        # Noise-level rumors stop propagating.
+        if r.credibility <= NOISE_THRESHOLD:
+            continue
+
+        # Propagate to NPCs not yet in known_by; apply effects exactly once.
+        for npc_id, npc in npcs.items():
+            if npc_id in r.known_by:
+                continue                     # already received — skip
+            if random.random() > 0.20:
+                continue                     # ~20 % spread chance per tick
+            r.known_by.append(npc_id)
+            npc.heard_rumors.append(r)
+            for effect in r.effects:
+                npc.shift_suspicion(effect.suspicion_delta)
+                npc.shift_mood(effect.mood_delta)
+                npc.shift_stress(effect.stress_delta)
 
 
 # -----------------------------
